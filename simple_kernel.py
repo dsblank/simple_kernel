@@ -7,29 +7,17 @@
 
 from __future__ import print_function
 
+## Imports:
 import sys
 import zmq
 import atexit
 import threading
 from zmq.eventloop import ioloop, zmqstream
 
-if len(sys.argv) > 1:
-    print("Reading config file '%s'...", sys.argv[1])
-    config = eval("".join(open(sys.argv[1]).readlines()))
-else:
-    # Config is a dictionary/JSON, like:
-    config = {
-        'stdin_port'      : 36177, 
-        'hb_port'         : 50488, 
-        'shell_port'      : 47102, 
-        'iopub_port'      : 34264, 
-        'control_port'    : 49882,
-        'signature_scheme': 'hmac-sha256', 
-        'key'             : 'c6712346-bf61-4687-beb0-e6dc75b7f885', 
-        'ip'              : '127.0.0.1', 
-        'transport'       : 'tcp', 
-    }
-    config = {'stdin_port': 35192, 'hb_port': 49472, 'signature_scheme': 'hmac-sha256', 'key': '1543e795-1d14-4f4e-a9cb-12318be55350', 'ip': '127.0.0.1', 'shell_port': 36538, 'iopub_port': 53231, 'transport': 'tcp', 'control_port': 55809}
+## Initialize:
+print("Loading simple_kernel with args:", sys.argv)
+print("Reading config file '%s'..." % sys.argv[1])
+config = eval("".join(open(sys.argv[1]).readlines()))
 print("Config:", config)
 
 connection     = "tcp://" + config["ip"] + ":"
@@ -53,9 +41,9 @@ def control_handler(msg):
 def stdin_handler(msg):
     print("stdin received:", msg)
 
-heartbeat_loop_run = True
+exiting = False
 def heartbeat_loop():
-    while heartbeat_loop_run:
+    while not exiting:
         print("Ping!")
         heartbeat_socket.send(b'ping')
         ready = poll()
@@ -67,7 +55,7 @@ def heartbeat_loop():
 def poll():
     events = []
     print("Start poll...")
-    while heartbeat_loop_run:
+    while not exiting:
         try:
             print(".", end="")
             sys.stdout.flush()
@@ -85,6 +73,46 @@ def poll():
     print("Return:", events)
     return events
 
+ioloop.install()
+
+# Shell message to handle:
+#['<IDS|MSG>', 
+# '0ab40204d4c91b42156b1a9610c87bce1d053274953fd3a95030d6610bcbb011', 
+# '{"username":"username",
+#   "msg_id":"F73E5E6EDD9440A18ECC239325E50C54",
+#   "msg_type":"execute_request",
+#   "session":"3B80B7712129454695BDEA50440C00B3"}', 
+# '{}', 
+# '{}', 
+# '{"store_history":true,
+#   "silent":false,
+#   "user_variables":[],
+#   "code":"x = 1",
+#   "user_expressions":{},
+#   "allow_stdin":true}']
+
+def loop(ioloop, name):
+    print("Starting loop for '%s'..." % name)
+    while True:
+        print("Loop!")
+        try:
+            ioloop.start()
+        except ZMQError as e:
+            print("ZMQError!")
+            if e.errno == errno.EINTR:
+                continue
+            else:
+                raise
+        except Exception:
+            print("Exception!")
+            if exiting:
+                break
+            else:
+                raise
+        else:
+            print("Break!")
+            break
+
 ##########################################
 # Heartbeat:
 ctx = zmq.Context()
@@ -100,7 +128,7 @@ poller.register(heartbeat_socket, zmq.POLLIN)
 iopub_socket = ctx.socket(zmq.SUB)
 iopub_socket.setsockopt(zmq.SUBSCRIBE,b'')
 iopub_socket.setsockopt(zmq.IDENTITY, session_id)
-iopub_socket.connect(iopub_conn)
+iopub_socket.bind(iopub_conn)
 iopub_loop = ioloop.IOLoop()
 iopub_stream = zmqstream.ZMQStream(iopub_socket, iopub_loop)
 iopub_stream.on_recv(iopub_handler)
@@ -109,7 +137,7 @@ iopub_stream.on_recv(iopub_handler)
 # Control:
 control_socket = ctx.socket(zmq.ROUTER)
 control_socket.setsockopt(zmq.IDENTITY, session_id)
-control_socket.connect(control_conn)
+control_socket.bind(control_conn)
 control_loop = ioloop.IOLoop()
 control_stream = zmqstream.ZMQStream(control_socket, control_loop)
 control_stream.on_recv(control_handler)
@@ -118,7 +146,7 @@ control_stream.on_recv(control_handler)
 # Stdin:
 stdin_socket = ctx.socket(zmq.DEALER)
 stdin_socket.setsockopt(zmq.IDENTITY, session_id)
-stdin_socket.connect(stdin_conn)
+stdin_socket.bind(stdin_conn)
 stdin_loop = ioloop.IOLoop()
 stdin_stream = zmqstream.ZMQStream(stdin_socket, stdin_loop)
 stdin_stream.on_recv(stdin_handler)
@@ -127,25 +155,17 @@ stdin_stream.on_recv(stdin_handler)
 # Shell:
 shell_socket = ctx.socket(zmq.DEALER)
 shell_socket.setsockopt(zmq.IDENTITY, session_id)
-shell_socket.connect(shell_conn)
+shell_socket.bind(shell_conn)
 shell_loop = ioloop.IOLoop()
 shell_stream = zmqstream.ZMQStream(shell_socket, shell_loop)
 shell_stream.on_recv(shell_handler)
 
 print("Starting loops...")
-threads = [threading.Thread(target=shell_loop.start),
-           threading.Thread(target=iopub_loop.start),
-           threading.Thread(target=control_loop.start),
-           threading.Thread(target=stdin_loop.start),
-           threading.Thread(target=heartbeat_loop)]
+threads = [threading.Thread(target=lambda: loop(shell_loop, "Shell")),
+           threading.Thread(target=lambda: loop(iopub_loop, "IOPub")),
+           threading.Thread(target=lambda: loop(control_loop, "Control")),
+           threading.Thread(target=lambda: loop(stdin_loop, "StdIn")),
+           threading.Thread(target=lambda: heartbeat_loop())]
 for thread in threads:
     thread.start()
 print("Ready! Listening...")
-
-def stop():
-    global heartbeat_loop_run
-    shell_loop.stop()
-    iopub_loop.stop()
-    control_loop.stop()
-    stdin_loop.stop()
-    heartbeat_loop_run = False
