@@ -91,26 +91,37 @@ ioloop.install()
 #   "user_expressions":{},
 #   "allow_stdin":true}']
 
+# Control message to handle:
+# ['\x00\xe4<\x98i', 
+#  '<IDS|MSG>', 
+#  '47917158f71daf34e9565516a11ea9632aa8a7cd1cfee29fff1c25b9049f373a', 
+#  '{"date":"2014-01-18T13:11:04.544653","username":"dblank",
+#    "session":"d63aaffb-f40d-492c-ade1-01432181ee3e",
+#    "msg_id":"dcc9c54a-d5fb-4570-95a9-4845ad28ebc3",
+#    "msg_type":"shutdown_request"}', 
+#  '{}', '{}', '{"restart":false}']
+
+
 def loop(ioloop, name):
     print("Starting loop for '%s'..." % name)
     while True:
-        print("Loop!")
+        print("%s Loop!" % name)
         try:
             ioloop.start()
         except ZMQError as e:
-            print("ZMQError!")
+            print("%s ZMQError!" % name)
             if e.errno == errno.EINTR:
                 continue
             else:
                 raise
         except Exception:
-            print("Exception!")
+            print("%s Exception!" % name)
             if exiting:
                 break
             else:
                 raise
         else:
-            print("Break!")
+            print("%s Break!" % name)
             break
 
 ##########################################
