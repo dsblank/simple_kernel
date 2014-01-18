@@ -10,14 +10,18 @@ from __future__ import print_function
 ## Imports:
 import sys
 import zmq
-import atexit
+import json
 import threading
 from zmq.eventloop import ioloop, zmqstream
+from zmq.error import ZMQError
+
+decoder = json.JSONDecoder()
+encoder = json.JSONEncoder()
 
 ## Initialize:
 print("Loading simple_kernel with args:", sys.argv)
 print("Reading config file '%s'..." % sys.argv[1])
-config = eval("".join(open(sys.argv[1]).readlines()))
+config = decoder.decode("".join(open(sys.argv[1]).readlines()))
 print("Config:", config)
 
 connection     = "tcp://" + config["ip"] + ":"
@@ -34,6 +38,61 @@ def iopub_handler(msg):
 
 def shell_handler(msg):
     print("shell received:", msg)
+    # Shell message to handle:
+    #['<IDS|MSG>', 
+    # '0ab40204d4c91b42156b1a9610c87bce1d053274953fd3a95030d6610bcbb011', 
+    # '{"username":"username",
+    #   "msg_id":"F73E5E6EDD9440A18ECC239325E50C54",
+    #   "msg_type":"execute_request",
+    #   "session":"3B80B7712129454695BDEA50440C00B3"}', 
+    # '{}', 
+    # '{}', 
+    # '{"store_history":true,
+    #   "silent":false,
+    #   "user_variables":[],
+    #   "code":"x = 1",
+    #   "user_expressions":{},
+    #   "allow_stdin":true}']
+    ## delimiter, hmac_sig, hdr, parent_hdr, metadata, content, extra_raw, ...
+    header        = decoder.decode(msg[2])
+    parent_header = decoder.decode(msg[3])
+    content       = decoder.decode(msg[5])
+
+    # process request:
+    # return reponse:
+    content = {
+        "execution_count":1,
+        "data": {"text/plain": "42"},
+    }
+    header_pub = {
+        "msg_id": 1,
+        "session": header["session"],
+        "msg_type": "pyout",
+    }
+    header_reply = {
+        "msg_id": 1,
+        "session": header["session"],
+        "msg_type": "execute_reply",
+    } 
+
+    ### respond:
+    iopub_stream.send_pyobj([
+        "", # Ident
+        "<IDS|MSG>", # delim
+        str(msg[1]), # sig
+        str(encoder.encode(header_pub)), # header_pub
+        str(msg[3]), # parent_header
+        str(msg[4]), # meta
+        str(encoder.encode(content))])
+
+    shell_stream.send_pyobj([
+        "", # Ident
+        "<IDS|MSG>", # delim
+        str(msg[1]), # sig
+        str(encoder.encode(header_reply)),
+        str(msg[3]),
+        str(msg[4]),
+        str(encoder.encode(content))])
 
 def control_handler(msg):
     print("control received:", msg)
@@ -75,22 +134,6 @@ def poll():
 
 ioloop.install()
 
-# Shell message to handle:
-#['<IDS|MSG>', 
-# '0ab40204d4c91b42156b1a9610c87bce1d053274953fd3a95030d6610bcbb011', 
-# '{"username":"username",
-#   "msg_id":"F73E5E6EDD9440A18ECC239325E50C54",
-#   "msg_type":"execute_request",
-#   "session":"3B80B7712129454695BDEA50440C00B3"}', 
-# '{}', 
-# '{}', 
-# '{"store_history":true,
-#   "silent":false,
-#   "user_variables":[],
-#   "code":"x = 1",
-#   "user_expressions":{},
-#   "allow_stdin":true}']
-
 # Control message to handle:
 # ['\x00\xe4<\x98i', 
 #  '<IDS|MSG>', 
@@ -102,12 +145,82 @@ ioloop.install()
 #  '{}', '{}', '{"restart":false}']
 
 
-def loop(ioloop, name):
+def shell_thread():
+    name = "Shell"
     print("Starting loop for '%s'..." % name)
     while True:
         print("%s Loop!" % name)
         try:
-            ioloop.start()
+            shell_loop.start()
+        except ZMQError as e:
+            print("%s ZMQError!" % name)
+            if e.errno == errno.EINTR:
+                continue
+            else:
+                raise
+        except Exception:
+            print("%s Exception!" % name)
+            if exiting:
+                break
+            else:
+                raise
+        else:
+            print("%s Break!" % name)
+            break
+
+def control_thread():
+    name = "Control"
+    print("Starting loop for '%s'..." % name)
+    while True:
+        print("%s Loop!" % name)
+        try:
+            control_loop.start()
+        except ZMQError as e:
+            print("%s ZMQError!" % name)
+            if e.errno == errno.EINTR:
+                continue
+            else:
+                raise
+        except Exception:
+            print("%s Exception!" % name)
+            if exiting:
+                break
+            else:
+                raise
+        else:
+            print("%s Break!" % name)
+            break
+
+def iopub_thread():
+    name = "IOPub"
+    print("Starting loop for '%s'..." % name)
+    while True:
+        print("%s Loop!" % name)
+        try:
+            iopub_loop.start()
+        except ZMQError as e:
+            print("%s ZMQError!" % name)
+            if e.errno == errno.EINTR:
+                continue
+            else:
+                raise
+        except Exception:
+            print("%s Exception!" % name)
+            if exiting:
+                break
+            else:
+                raise
+        else:
+            print("%s Break!" % name)
+            break
+
+def stdin_thread():
+    name = "StdIn"
+    print("Starting loop for '%s'..." % name)
+    while True:
+        print("%s Loop!" % name)
+        try:
+            stdin_loop.start()
         except ZMQError as e:
             print("%s ZMQError!" % name)
             if e.errno == errno.EINTR:
@@ -172,11 +285,11 @@ shell_stream = zmqstream.ZMQStream(shell_socket, shell_loop)
 shell_stream.on_recv(shell_handler)
 
 print("Starting loops...")
-threads = [threading.Thread(target=lambda: loop(shell_loop, "Shell")),
-           threading.Thread(target=lambda: loop(iopub_loop, "IOPub")),
-           threading.Thread(target=lambda: loop(control_loop, "Control")),
-           threading.Thread(target=lambda: loop(stdin_loop, "StdIn")),
-           threading.Thread(target=lambda: heartbeat_loop())]
+threads = [threading.Thread(target=shell_thread),
+           threading.Thread(target=iopub_thread),
+           threading.Thread(target=control_thread),
+           threading.Thread(target=stdin_thread),
+           threading.Thread(target=heartbeat_loop)]
 for thread in threads:
     thread.start()
 print("Ready! Listening...")
