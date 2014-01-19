@@ -11,6 +11,7 @@ from __future__ import print_function
 import sys
 import zmq
 import json
+import hmac
 import threading
 from zmq.eventloop import ioloop, zmqstream
 from zmq.error import ZMQError
@@ -32,67 +33,95 @@ control_conn   = connection + str(config["control_port"])
 stdin_conn     = connection + str(config["stdin_port"])
 
 session_id = unicode(config["key"]).encode("ascii")
+auth = hmac.HMAC(session_id)
 
 def iopub_handler(msg):
     print("iopub received:", msg)
 
+def sign(msg_lst):
+    h = auth.copy()
+    for m in msg_lst:
+        h.update(m)
+    return h.hexdigest()
+
+execution_count = 1
 def shell_handler(msg):
+    global execution_count
     print("shell received:", msg)
     # Shell message to handle:
-    #['<IDS|MSG>', 
-    # '0ab40204d4c91b42156b1a9610c87bce1d053274953fd3a95030d6610bcbb011', 
-    # '{"username":"username",
-    #   "msg_id":"F73E5E6EDD9440A18ECC239325E50C54",
-    #   "msg_type":"execute_request",
-    #   "session":"3B80B7712129454695BDEA50440C00B3"}', 
-    # '{}', 
-    # '{}', 
-    # '{"store_history":true,
-    #   "silent":false,
-    #   "user_variables":[],
-    #   "code":"x = 1",
-    #   "user_expressions":{},
-    #   "allow_stdin":true}']
-    ## delimiter, hmac_sig, hdr, parent_hdr, metadata, content, extra_raw, ...
-    header        = decoder.decode(msg[2])
+    # ['90711B188AEF41E19FE80A2A788E75A4', 
+    #  '<IDS|MSG>', 
+    #  '5973981c454337cba7959cc375a375bf721aebc0f07bda054a92da9c733feac1', 
+    #  '{"username":"username","msg_id":"A96BBFE315DC4BE989FB1E2087D30EA5","msg_type":"execute_request","session":"90711B188AEF41E19FE80A2A788E75A4"}', 
+    #  '{}', 
+    #  '{}', 
+    #  '{"store_history":true,"silent":false,"user_variables":[],"code":"1","user_expressions":{},"allow_stdin":true}']
+
+    ident         = msg[0]
+    delim         = msg[1]
+    signature     = msg[2]
     parent_header = decoder.decode(msg[3])
-    content       = decoder.decode(msg[5])
+    header        = msg[4]
+    metadata      = msg[5]
+    content       = decoder.decode(msg[6])
 
     # process request:
+    print("Executing:", content["code"])
+
     # return reponse:
     content = {
-        "execution_count":1,
+        "execution_count": execution_count,
         "data": {"text/plain": "42"},
     }
     header_pub = {
-        "msg_id": 1,
-        "session": header["session"],
+        "msg_id": parent_header["msg_id"],
+        "session": parent_header["session"],
         "msg_type": "pyout",
     }
     header_reply = {
-        "msg_id": 1,
-        "session": header["session"],
+        "msg_id": parent_header["msg_id"],
+        "session": parent_header["session"],
+        "status": "ok",
+        "payload": [{}],
+        "user_variables": {},
+        "user_expressions": {},
         "msg_type": "execute_reply",
     } 
 
     ### respond:
-    iopub_stream.send_pyobj([
-        "", # Ident
+    msg_lst = [bytes(encoder.encode(header_pub)), # header_pub
+               msg[3],
+               msg[5],
+               bytes(encoder.encode(content))]
+    signature = sign(msg_lst)
+    print("msg_list:", msg_lst)
+    print("signature:", signature)
+    # Send to pub:
+    iopub_stream.send_multipart([
+        msg[0], # Ident
         "<IDS|MSG>", # delim
-        str(msg[1]), # sig
-        str(encoder.encode(header_pub)), # header_pub
-        str(msg[3]), # parent_header
-        str(msg[4]), # meta
-        str(encoder.encode(content))])
-
-    shell_stream.send_pyobj([
-        "", # Ident
+        signature, # HMAC sig
+        bytes(encoder.encode(header_pub)), # header_pub
+        msg[3], # parent
+        msg[5], # parent_header
+        bytes(encoder.encode(content))])
+    # Send to shell:
+    msg_lst = [bytes(encoder.encode(header_reply)), # header_pub
+               msg[3],
+               msg[5],
+               bytes(encoder.encode(content))]
+    signature = sign(msg_lst)
+    print("msg_list:", msg_lst)
+    print("signature:", signature)
+    shell_stream.send_multipart([
+        msg[0], # Ident
         "<IDS|MSG>", # delim
-        str(msg[1]), # sig
-        str(encoder.encode(header_reply)),
-        str(msg[3]),
-        str(msg[4]),
-        str(encoder.encode(content))])
+        signature, # sig
+        bytes(encoder.encode(header_reply)),
+        msg[3],
+        msg[5],
+        bytes(encoder.encode(content))])
+    execution_count += 1
 
 def control_handler(msg):
     print("control received:", msg)
@@ -251,7 +280,7 @@ poller.register(heartbeat_socket, zmq.POLLIN)
 # aslo called SubSocketChannel in IPython sources
 iopub_socket = ctx.socket(zmq.SUB)
 iopub_socket.setsockopt(zmq.SUBSCRIBE,b'')
-iopub_socket.setsockopt(zmq.IDENTITY, session_id)
+#iopub_socket.setsockopt(zmq.IDENTITY, session_id)
 iopub_socket.bind(iopub_conn)
 iopub_loop = ioloop.IOLoop()
 iopub_stream = zmqstream.ZMQStream(iopub_socket, iopub_loop)
@@ -260,7 +289,7 @@ iopub_stream.on_recv(iopub_handler)
 ##########################################
 # Control:
 control_socket = ctx.socket(zmq.ROUTER)
-control_socket.setsockopt(zmq.IDENTITY, session_id)
+#control_socket.setsockopt(zmq.IDENTITY, session_id)
 control_socket.bind(control_conn)
 control_loop = ioloop.IOLoop()
 control_stream = zmqstream.ZMQStream(control_socket, control_loop)
@@ -268,8 +297,8 @@ control_stream.on_recv(control_handler)
 
 ##########################################
 # Stdin:
-stdin_socket = ctx.socket(zmq.DEALER)
-stdin_socket.setsockopt(zmq.IDENTITY, session_id)
+stdin_socket = ctx.socket(zmq.ROUTER)
+#stdin_socket.setsockopt(zmq.IDENTITY, session_id)
 stdin_socket.bind(stdin_conn)
 stdin_loop = ioloop.IOLoop()
 stdin_stream = zmqstream.ZMQStream(stdin_socket, stdin_loop)
@@ -277,8 +306,8 @@ stdin_stream.on_recv(stdin_handler)
 
 ##########################################
 # Shell:
-shell_socket = ctx.socket(zmq.DEALER)
-shell_socket.setsockopt(zmq.IDENTITY, session_id)
+shell_socket = ctx.socket(zmq.ROUTER)
+#shell_socket.setsockopt(zmq.IDENTITY, session_id)
 shell_socket.bind(shell_conn)
 shell_loop = ioloop.IOLoop()
 shell_stream = zmqstream.ZMQStream(shell_socket, shell_loop)
