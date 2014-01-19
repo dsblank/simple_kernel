@@ -97,28 +97,44 @@ def shell_handler(msg):
     content       = decode(msg[6])
 
     # process request:
-    dprint(1, "Executing:", content["code"])
+    if parent_header["msg_type"] == "execute_request":
+        dprint(1, "Executing:", content["code"])
+        header_reply = {
+            "msg_id": msg_id(),
+            "username": parent_header["username"],
+            "session": parent_header["session"],
+            "msg_type": "execute_reply",
+        } 
+        content = {
+            "status": "ok",
+            "execution_count": execution_count,
+            "playload": [],
+            "user_variables": {},
+            "user_expressions": {},
+        }
+    elif parent_header["msg_type"] == "kernel_info_request":
+        header_reply = {
+            "msg_id": msg_id(),
+            "username": parent_header["username"],
+            "session": parent_header["session"],
+            "msg_type": "kernel_info_reply",
+        } 
+        content = {
+            "protocol_version": [1, 1],
+            "ipython_version": [1, 1, 0, ""],
+            "language_version": [0, 0, 1],
+            "language": "simple",
+        }
+    else:
+        dprint("unknown msg_type:", parent_header["msg_type"])
+        content = {}
 
-    # return reponse:
-    content = {
-        "status": "ok",
-        "execution_count": execution_count,
-        "playload": [],
-        "user_variables": {},
-        "user_expressions": {},
-    }
     header_pub = {
         "msg_id": msg_id(),
         "username": parent_header["username"],
         "session": parent_header["session"],
         "msg_type": "pyout",
     }
-    header_reply = {
-        "msg_id": msg_id(),
-        "username": parent_header["username"],
-        "session": parent_header["session"],
-        "msg_type": "execute_reply",
-    } 
 
     ### respond:
     msg_lst = [bytes(encode(header_pub)), # header_pub
