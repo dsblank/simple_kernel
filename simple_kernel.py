@@ -93,6 +93,18 @@ def shell_handler(msg):
     # process request:
     if shell_header["msg_type"] == "execute_request":
         dprint(1, "simple_kernel Executing:", pformat(content["code"]))
+        pub_header = {
+            "msg_id": msg_id(),
+            "username": shell_header["username"],
+            "session": shell_header["session"],
+            "msg_type": "pyout",
+        }
+        pub_content = {
+            'execution_count': execution_count,
+            'data' : {"text/plain": "result!"},
+            'metadata' : {},
+        }
+        send(iopub_stream, pub_header, shell_header, metadata, pub_content)
         header = {
             "msg_id": msg_id(),
             "username": shell_header["username"],
@@ -107,18 +119,6 @@ def shell_handler(msg):
             "user_expressions": {},
         }
         send(shell_stream, header, shell_header, metadata, content)
-        pub_header = {
-            "msg_id": msg_id(),
-            "username": shell_header["username"],
-            "session": shell_header["session"],
-            "msg_type": "pyout",
-        }
-        pub_content = {
-            'execution_count': execution_count,
-            'data' : {"text/plain": "result!"},
-            'metadata' : {},
-        }
-        send(iopub_stream, pub_header, shell_header, metadata, pub_content)
     elif shell_header["msg_type"] == "kernel_info_request":
         header = {
             "msg_id": msg_id(),
@@ -167,7 +167,7 @@ def send(stream, header, parent_header, metadata, content):
     signature = sign(msg_lst)
     dprint(3, "send: msg_list:", msg_lst) 
     dprint(3, "send: signature:", signature)
-    shell_stream.send_multipart([
+    stream.send_multipart([
         "<IDS|MSG>", 
         signature, 
         msg_lst[0],
