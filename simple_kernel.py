@@ -79,30 +79,24 @@ def sign(msg_lst):
 def shell_handler(msg):
     global execution_count
     dprint(1, "shell received:", msg)
-    # Shell message to handle:
-    # ['90711B188AEF41E19FE80A2A788E75A4', 
-    #  '<IDS|MSG>', 
-    #  '5973981c454337cba7959cc375a375bf721aebc0f07bda054a92da9c733feac1', 
-    #  '{"username":"username","msg_id":"A96BBFE315DC4BE989FB1E2087D30EA5","msg_type":"execute_request","session":"90711B188AEF41E19FE80A2A788E75A4"}', 
-    #  '{}', 
-    #  '{}', 
-    #  '{"store_history":true,"silent":false,"user_variables":[],"code":"1","user_expressions":{},"allow_stdin":true}']
-
     ident         = msg[0]
     delim         = msg[1]
     signature     = msg[2]
-    parent_header = decode(msg[3])
-    header        = msg[4]
-    metadata      = msg[5]
+    shell_header  = decode(msg[3])
+    parent_header = decode(msg[4])
+    metadata      = decode(msg[5])
     content       = decode(msg[6])
 
+    dprint(3, "Checking signature:", signature)
+    # TODO: check signature
+
     # process request:
-    if parent_header["msg_type"] == "execute_request":
-        dprint(1, "Executing:", content["code"])
-        header_reply = {
+    if shell_header["msg_type"] == "execute_request":
+        dprint(1, "simple_kernel Executing:", pformat(content["code"]))
+        header = {
             "msg_id": msg_id(),
-            "username": parent_header["username"],
-            "session": parent_header["session"],
+            "username": shell_header["username"],
+            "session": shell_header["session"],
             "msg_type": "execute_reply",
         } 
         content = {
@@ -112,11 +106,24 @@ def shell_handler(msg):
             "user_variables": {},
             "user_expressions": {},
         }
-    elif parent_header["msg_type"] == "kernel_info_request":
-        header_reply = {
+        send(shell_stream, header, shell_header, metadata, content)
+        pub_header = {
             "msg_id": msg_id(),
-            "username": parent_header["username"],
-            "session": parent_header["session"],
+            "username": shell_header["username"],
+            "session": shell_header["session"],
+            "msg_type": "pyout",
+        }
+        pub_content = {
+            'execution_count': execution_count,
+            'data' : {"text/plain": "result!"},
+            'metadata' : {},
+        }
+        send(iopub_stream, pub_header, shell_header, metadata, pub_content)
+    elif shell_header["msg_type"] == "kernel_info_request":
+        header = {
+            "msg_id": msg_id(),
+            "username": shell_header["username"],
+            "session": shell_header["session"],
             "msg_type": "kernel_info_reply",
         } 
         content = {
@@ -125,52 +132,54 @@ def shell_handler(msg):
             "language_version": [0, 0, 1],
             "language": "simple",
         }
+        send(shell_stream, header, shell_header, metadata, content)
+    elif shell_header["msg_type"] == "history_request":
+        header = {
+            "msg_id": msg_id(),
+            "username": shell_header["username"],
+            "session": shell_header["session"],
+            "msg_type": "kernel_info_reply",
+        } 
+        content = {
+            'output' : False,
+        }
+        send(shell_stream, header, shell_header, metadata, content)
     else:
-        dprint("unknown msg_type:", parent_header["msg_type"])
-        content = {}
-
-    header_pub = {
-        "msg_id": msg_id(),
-        "username": parent_header["username"],
-        "session": parent_header["session"],
-        "msg_type": "pyout",
-    }
-
-    ### respond:
-    msg_lst = [bytes(encode(header_pub)), # header_pub
-               msg[3],
-               msg[5],
-               bytes(encode(content))]
-    signature = sign(msg_lst)
-    dprint(3, "msg_list:", msg_lst) # list of serialized objects
-    dprint(3, "signature:", signature)
-    # Send to pub:
-    iopub_stream.send_multipart([
-        "<IDS|MSG>", # delim
-        signature, # HMAC sig
-        bytes(encode(header_pub)), # header_pub
-        msg[3], # parent
-        msg[5], # parent_header
-        bytes(encode(content))])
-    # Send to shell:
-    msg_lst = [bytes(encode(header_reply)), # header_pub
-               msg[3],
-               msg[5],
-               bytes(encode(content))]
-    signature = sign(msg_lst)
-    dprint(3, "msg_list:", msg_lst) # list of serialized objects
-    dprint(3, "signature:", signature)
-    shell_stream.send_multipart([
-        "<IDS|MSG>", # delim
-        signature, # sig
-        bytes(encode(header_reply)),
-        msg[3],
-        msg[5],
-        bytes(encode(content))])
+        dprint("unknown msg_type:", shell_header["msg_type"])
+        header = {
+            "msg_id": msg_id(),
+            "username": shell_header["username"],
+            "session": shell_header["session"],
+            "msg_type": "execute_reply",
+        } 
+        content = {
+            "status": "error",
+            "execution_count": execution_count,
+        }
+        send(shell_stream, header, shell_header, metadata, content)
     execution_count += 1
 
+def send(stream, header, parent_header, metadata, content):
+    msg_lst = [bytes(encode(header)), 
+               bytes(encode(parent_header)), 
+               bytes(encode(metadata)), 
+               bytes(encode(content))]
+    signature = sign(msg_lst)
+    dprint(3, "send: msg_list:", msg_lst) 
+    dprint(3, "send: signature:", signature)
+    shell_stream.send_multipart([
+        "<IDS|MSG>", 
+        signature, 
+        msg_lst[0],
+        msg_lst[1],
+        msg_lst[2],
+        msg_lst[3]])
+
 def control_handler(msg):
+    global exiting
     dprint(1, "control received:", msg)
+    # Need to handle: "shutdown_request"
+    # exiting = True
 
 def stdin_handler(msg):
     dprint(1, "stdin received:", msg)
