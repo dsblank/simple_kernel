@@ -47,6 +47,7 @@ def dprint(level, *args, **kwargs):
     """ Show debug information """
     if level <= debug_level:
         print(*args, **kwargs)
+        sys.stdout.flush()
 
 def msg_id():
     """ Return a new uuid for message id """
@@ -102,8 +103,7 @@ def run_thread(loop, name):
 def heartbeat_loop():
     dprint(2, "Starting loop for 'Heartbeat'...")
     while not exiting:
-        print(".", end="")
-        sys.stdout.flush()
+        dprint(3, ".", end="")
         try:
             zmq.device(zmq.FORWARDER, heartbeat_socket, heartbeat_socket)
         except zmq.ZMQError as e:
@@ -245,21 +245,35 @@ def iopub_handler(msg):
 def stdin_handler(msg):
     dprint(1, "stdin received:", msg)
 
+def bind(socket, connection, port):
+    if port <= 0:
+        return socket.bind_to_random_port(connection)
+    else:
+        socket.bind("%s:%s" % (connection, port))
+    return port
+
 ## Initialize:
 ioloop.install()
 
-dprint(1, "Loading simple_kernel with args:", sys.argv)
-dprint(1, "Reading config file '%s'..." % sys.argv[1])
-config = decode("".join(open(sys.argv[1]).readlines()))
-dprint(1, "Config:", pformat(config))
+if len(sys.argv) > 1:
+    dprint(1, "Loading simple_kernel with args:", sys.argv)
+    dprint(1, "Reading config file '%s'..." % sys.argv[1])
+    config = decode("".join(open(sys.argv[1]).readlines()))
+else:
+    dprint(1, "Starting simple_kernel with default args...")
+    config = {
+        u'control_port': 0,
+        u'hb_port': 0,
+        u'iopub_port': 0,
+        u'ip': u'127.0.0.1',
+        u'key': uuid.uuid4(),
+        u'shell_port': 0,
+        u'signature_scheme': u'hmac-sha256',
+        u'stdin_port': 0,
+        u'transport': u'tcp'
+    }
 
-connection     = "tcp://" + config["ip"] + ":"
-heartbeat_conn = connection + str(config["hb_port"])
-iopub_conn     = connection + str(config["iopub_port"])
-shell_conn     = connection + str(config["shell_port"])
-control_conn   = connection + str(config["control_port"])
-stdin_conn     = connection + str(config["stdin_port"])
-
+connection     = config["transport"] + "://" + config["ip"]
 session_id = unicode(uuid.uuid4()).encode('ascii')
 secure_key = unicode(config["key"]).encode("ascii")
 auth = hmac.HMAC(secure_key)
@@ -269,13 +283,13 @@ execution_count = 1
 # Heartbeat:
 ctx = zmq.Context()
 heartbeat_socket = ctx.socket(zmq.REP)
-heartbeat_socket.bind(heartbeat_conn)
+config["hb_port"] = bind(heartbeat_socket, connection, config["hb_port"])
 
 ##########################################
 # IOPub/Sub:
 # aslo called SubSocketChannel in IPython sources
 iopub_socket = ctx.socket(zmq.PUB)
-iopub_socket.bind(iopub_conn)
+config["iopub_port"] = bind(iopub_socket, connection, config["iopub_port"])
 iopub_loop = ioloop.IOLoop()
 iopub_stream = zmqstream.ZMQStream(iopub_socket, iopub_loop)
 iopub_stream.on_recv(iopub_handler)
@@ -283,7 +297,7 @@ iopub_stream.on_recv(iopub_handler)
 ##########################################
 # Control:
 control_socket = ctx.socket(zmq.ROUTER)
-control_socket.bind(control_conn)
+config["control_port"] = bind(control_socket, connection, config["control_port"])
 control_loop = ioloop.IOLoop()
 control_stream = zmqstream.ZMQStream(control_socket, control_loop)
 control_stream.on_recv(control_handler)
@@ -291,7 +305,7 @@ control_stream.on_recv(control_handler)
 ##########################################
 # Stdin:
 stdin_socket = ctx.socket(zmq.ROUTER)
-stdin_socket.bind(stdin_conn)
+config["stdin_port"] = bind(stdin_socket, connection, config["stdin_port"])
 stdin_loop = ioloop.IOLoop()
 stdin_stream = zmqstream.ZMQStream(stdin_socket, stdin_loop)
 stdin_stream.on_recv(stdin_handler)
@@ -299,11 +313,12 @@ stdin_stream.on_recv(stdin_handler)
 ##########################################
 # Shell:
 shell_socket = ctx.socket(zmq.ROUTER)
-shell_socket.bind(shell_conn)
+config["shell_port"] = bind(shell_socket, connection, config["shell_port"])
 shell_loop = ioloop.IOLoop()
 shell_stream = zmqstream.ZMQStream(shell_socket, shell_loop)
 shell_stream.on_recv(shell_handler)
 
+dprint(1, "Config:", pformat(config))
 dprint(1, "Starting loops...")
 # Which threads to run is determined by the frontend
 # For example, the notebook frontend does not use heartbeat
