@@ -29,6 +29,7 @@ import json
 import hmac
 import uuid
 import errno
+import hashlib
 import threading
 from pprint import pformat
 
@@ -46,7 +47,7 @@ exiting = False
 def dprint(level, *args, **kwargs):
     """ Show debug information """
     if level <= debug_level:
-        print(*args, **kwargs)
+        print("DEBUG:", *args, **kwargs)
         sys.stdout.flush()
 
 def msg_id():
@@ -262,21 +263,24 @@ if len(sys.argv) > 1:
 else:
     dprint(1, "Starting simple_kernel with default args...")
     config = {
-        u'control_port': 0,
-        u'hb_port': 0,
-        u'iopub_port': 0,
-        u'ip': u'127.0.0.1',
-        u'key': uuid.uuid4(),
-        u'shell_port': 0,
-        u'signature_scheme': u'hmac-sha256',
-        u'stdin_port': 0,
-        u'transport': u'tcp'
+        'control_port'      : 0,
+        'hb_port'           : 0,
+        'iopub_port'        : 0,
+        'ip'                : '127.0.0.1',
+        'key'               : uuid.uuid4(),
+        'shell_port'        : 0,
+        'signature_scheme'  : 'hmac-sha256',
+        'stdin_port'        : 0,
+        'transport'         : 'tcp'
     }
 
 connection     = config["transport"] + "://" + config["ip"]
 session_id = unicode(uuid.uuid4()).encode('ascii')
 secure_key = unicode(config["key"]).encode("ascii")
-auth = hmac.HMAC(secure_key)
+signature_schemes = {"hmac-sha256": hashlib.sha256}
+auth = hmac.HMAC(
+    secure_key, 
+    digestmod=signature_schemes[config["signature_scheme"]])
 execution_count = 1
 
 ##########################################
