@@ -36,32 +36,14 @@ from zmq.error import ZMQError
 decode = json.JSONDecoder().decode
 encode = json.JSONEncoder().encode
 debug_level = 3 # 0 (none) to 3 (all) for various levels of detail
+exiting = False
+
+# Utility functions:
 
 def dprint(level, *args, **kwargs):
     """ Show debug information """
     if level <= debug_level:
         print(*args, **kwargs)
-
-## Initialize:
-dprint(1, "Loading simple_kernel with args:", sys.argv)
-dprint(1, "Reading config file '%s'..." % sys.argv[1])
-config = decode("".join(open(sys.argv[1]).readlines()))
-dprint(1, "Config:", pformat(config))
-
-connection     = "tcp://" + config["ip"] + ":"
-heartbeat_conn = connection + str(config["hb_port"])
-iopub_conn     = connection + str(config["iopub_port"])
-shell_conn     = connection + str(config["shell_port"])
-control_conn   = connection + str(config["control_port"])
-stdin_conn     = connection + str(config["stdin_port"])
-
-session_id = unicode(uuid.uuid4()).encode('ascii')
-secure_key = unicode(config["key"]).encode("ascii")
-auth = hmac.HMAC(secure_key)
-execution_count = 1
-
-def iopub_handler(msg):
-    dprint(1, "iopub received:", msg)
 
 def msg_id():
     """ Return a new uuid for message id """
@@ -75,6 +57,78 @@ def sign(msg_lst):
     for m in msg_lst:
         h.update(m)
     return h.hexdigest()
+
+def send(stream, header, parent_header, metadata, content):
+    msg_lst = [bytes(encode(header)), 
+               bytes(encode(parent_header)), 
+               bytes(encode(metadata)), 
+               bytes(encode(content))]
+    signature = sign(msg_lst)
+    dprint(3, "send: msg_list:", msg_lst) 
+    dprint(3, "send: signature:", signature)
+    stream.send_multipart([
+        "<IDS|MSG>", 
+        signature, 
+        msg_lst[0],
+        msg_lst[1],
+        msg_lst[2],
+        msg_lst[3]])
+
+def run_thread(loop, name):
+    dprint(2, "Starting loop for '%s'..." % name)
+    while True:
+        dprint(2, "%s Loop!" % name)
+        try:
+            loop.start()
+        except ZMQError as e:
+            dprint(2, "%s ZMQError!" % name)
+            if e.errno == errno.EINTR:
+                continue
+            else:
+                raise
+        except Exception:
+            dprint(2, "%s Exception!" % name)
+            if exiting:
+                break
+            else:
+                raise
+        else:
+            dprint(2, "%s Break!" % name)
+            break
+
+def heartbeat_loop():
+    while not exiting:
+        dprint(2, "Ping!")
+        heartbeat_socket.send(b'ping')
+        ready = poll()
+        if ready:
+            heartbeat_socket.recv()
+        else:
+            dprint(1, "heartbeat_loop fail!")
+
+def poll():
+    events = []
+    dprint(2, "Start poll...")
+    while not exiting:
+        try:
+            dprint(2, ".", end="")
+            sys.stdout.flush()
+            events = poller.poll(1000)
+        except ZMQError as e:
+            if e.errno == errno.EINTR:
+                continue
+            else:
+                raise
+        except Exception:
+            dprint(2, "Exception!")
+            raise
+        # TODO: why does this not get values?
+        else:
+            break
+    dprint(2, "Return:", events)
+    return events
+
+# Socket Handlers
 
 def shell_handler(msg):
     global execution_count
@@ -91,6 +145,8 @@ def shell_handler(msg):
 
     dprint(3, "Checking signature:", signature)
     # TODO: check signature
+    check_sig = sign(msg[position + 2:position + 6])
+    print("Computed signature    :", check_sig)
 
     # process request:
     if shell_header["msg_type"] == "execute_request":
@@ -161,22 +217,6 @@ def shell_handler(msg):
         send(shell_stream, header, shell_header, metadata, content)
     execution_count += 1
 
-def send(stream, header, parent_header, metadata, content):
-    msg_lst = [bytes(encode(header)), 
-               bytes(encode(parent_header)), 
-               bytes(encode(metadata)), 
-               bytes(encode(content))]
-    signature = sign(msg_lst)
-    dprint(3, "send: msg_list:", msg_lst) 
-    dprint(3, "send: signature:", signature)
-    stream.send_multipart([
-        "<IDS|MSG>", 
-        signature, 
-        msg_lst[0],
-        msg_lst[1],
-        msg_lst[2],
-        msg_lst[3]])
-
 def control_handler(msg):
     global exiting
     dprint(1, "control received:", msg)
@@ -193,64 +233,31 @@ def control_handler(msg):
 #    "msg_type":"shutdown_request"}', 
 #  '{}', '{}', '{"restart":false}']
 
+def iopub_handler(msg):
+    dprint(1, "iopub received:", msg)
+
 def stdin_handler(msg):
     dprint(1, "stdin received:", msg)
 
-exiting = False
-def heartbeat_loop():
-    while not exiting:
-        dprint(2, "Ping!")
-        heartbeat_socket.send(b'ping')
-        ready = poll()
-        if ready:
-            heartbeat_socket.recv()
-        else:
-            dprint(1, "heartbeat_loop fail!")
-
-def poll():
-    events = []
-    dprint(2, "Start poll...")
-    while not exiting:
-        try:
-            dprint(2, ".", end="")
-            sys.stdout.flush()
-            events = poller.poll(1000)
-        except ZMQError as e:
-            if e.errno == errno.EINTR:
-                continue
-            else:
-                raise
-        except Exception:
-            dprint(2, "Exception!")
-            raise
-        #else:
-        #    break
-    dprint(2, "Return:", events)
-    return events
-
+## Initialize:
 ioloop.install()
 
-def run_thread(loop, name):
-    dprint(2, "Starting loop for '%s'..." % name)
-    while True:
-        dprint(2, "%s Loop!" % name)
-        try:
-            loop.start()
-        except ZMQError as e:
-            dprint(2, "%s ZMQError!" % name)
-            if e.errno == errno.EINTR:
-                continue
-            else:
-                raise
-        except Exception:
-            dprint(2, "%s Exception!" % name)
-            if exiting:
-                break
-            else:
-                raise
-        else:
-            dprint(2, "%s Break!" % name)
-            break
+dprint(1, "Loading simple_kernel with args:", sys.argv)
+dprint(1, "Reading config file '%s'..." % sys.argv[1])
+config = decode("".join(open(sys.argv[1]).readlines()))
+dprint(1, "Config:", pformat(config))
+
+connection     = "tcp://" + config["ip"] + ":"
+heartbeat_conn = connection + str(config["hb_port"])
+iopub_conn     = connection + str(config["iopub_port"])
+shell_conn     = connection + str(config["shell_port"])
+control_conn   = connection + str(config["control_port"])
+stdin_conn     = connection + str(config["stdin_port"])
+
+session_id = unicode(uuid.uuid4()).encode('ascii')
+secure_key = unicode(config["key"]).encode("ascii")
+auth = hmac.HMAC(secure_key)
+execution_count = 1
 
 ##########################################
 # Heartbeat:
@@ -267,7 +274,7 @@ poller.register(heartbeat_socket, zmq.POLLIN)
 iopub_socket = ctx.socket(zmq.SUB)
 iopub_socket.setsockopt(zmq.SUBSCRIBE,b'')
 iopub_socket.setsockopt(zmq.IDENTITY, session_id)
-iopub_socket.bind(iopub_conn)
+iopub_socket.connect(iopub_conn)
 iopub_loop = ioloop.IOLoop()
 iopub_stream = zmqstream.ZMQStream(iopub_socket, iopub_loop)
 iopub_stream.on_recv(iopub_handler)
@@ -276,7 +283,7 @@ iopub_stream.on_recv(iopub_handler)
 # Control:
 control_socket = ctx.socket(zmq.DEALER)
 control_socket.setsockopt(zmq.IDENTITY, session_id)
-control_socket.bind(control_conn)
+control_socket.connect(control_conn)
 control_loop = ioloop.IOLoop()
 control_stream = zmqstream.ZMQStream(control_socket, control_loop)
 control_stream.on_recv(control_handler)
@@ -285,7 +292,7 @@ control_stream.on_recv(control_handler)
 # Stdin:
 stdin_socket = ctx.socket(zmq.DEALER)
 stdin_socket.setsockopt(zmq.IDENTITY, session_id)
-stdin_socket.bind(stdin_conn)
+stdin_socket.connect(stdin_conn)
 stdin_loop = ioloop.IOLoop()
 stdin_stream = zmqstream.ZMQStream(stdin_socket, stdin_loop)
 stdin_stream.on_recv(stdin_handler)
@@ -294,17 +301,21 @@ stdin_stream.on_recv(stdin_handler)
 # Shell:
 shell_socket = ctx.socket(zmq.DEALER)
 shell_socket.setsockopt(zmq.IDENTITY, session_id)
-shell_socket.bind(shell_conn)
+shell_socket.connect(shell_conn)
 shell_loop = ioloop.IOLoop()
 shell_stream = zmqstream.ZMQStream(shell_socket, shell_loop)
 shell_stream.on_recv(shell_handler)
 
 dprint(1, "Starting loops...")
-threads = [threading.Thread(target=lambda: run_thread(shell_loop, "Shell")),
-           threading.Thread(target=lambda: run_thread(iopub_loop, "IOPub")),
-#           threading.Thread(target=lambda: run_thread(control_loop, "Control")),
-           threading.Thread(target=lambda: run_thread(stdin_loop, "StdIn")),
-           threading.Thread(target=heartbeat_loop)]
+# Which threads to run is determined by the frontend
+# For example, the notebook frontend does not use heartbeat
+threads = [
+    threading.Thread(target=lambda: run_thread(shell_loop, "Shell")),
+    threading.Thread(target=lambda: run_thread(iopub_loop, "IOPub")),
+#    threading.Thread(target=lambda: run_thread(control_loop, "Control")),
+    threading.Thread(target=lambda: run_thread(stdin_loop, "StdIn")),
+#    threading.Thread(target=heartbeat_loop),
+]
 for thread in threads:
     thread.start()
 dprint(1, "Ready! Listening...")
