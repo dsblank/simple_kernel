@@ -79,13 +79,15 @@ def sign(msg_lst):
 def shell_handler(msg):
     global execution_count
     dprint(1, "shell received:", msg)
-    ident         = msg[0]
-    delim         = msg[1]
-    signature     = msg[2]
-    shell_header  = decode(msg[3])
-    parent_header = decode(msg[4])
-    metadata      = decode(msg[5])
-    content       = decode(msg[6])
+    position = 0
+    while (msg[position] != "<IDS|MSG>"):
+        position += 1
+    delim         = msg[position]
+    signature     = msg[position + 1]
+    shell_header  = decode(msg[position + 2])
+    parent_header = decode(msg[position + 3])
+    metadata      = decode(msg[position + 4])
+    content       = decode(msg[position + 5])
 
     dprint(3, "Checking signature:", signature)
     # TODO: check signature
@@ -181,6 +183,16 @@ def control_handler(msg):
     # Need to handle: "shutdown_request"
     # exiting = True
 
+# Control message to handle:
+# ['\x00\xe4<\x98i', 
+#  '<IDS|MSG>', 
+#  '47917158f71daf34e9565516a11ea9632aa8a7cd1cfee29fff1c25b9049f373a', 
+#  '{"date":"2014-01-18T13:11:04.544653","username":"dblank",
+#    "session":"d63aaffb-f40d-492c-ade1-01432181ee3e",
+#    "msg_id":"dcc9c54a-d5fb-4570-95a9-4845ad28ebc3",
+#    "msg_type":"shutdown_request"}', 
+#  '{}', '{}', '{"restart":false}']
+
 def stdin_handler(msg):
     dprint(1, "stdin received:", msg)
 
@@ -218,93 +230,12 @@ def poll():
 
 ioloop.install()
 
-# Control message to handle:
-# ['\x00\xe4<\x98i', 
-#  '<IDS|MSG>', 
-#  '47917158f71daf34e9565516a11ea9632aa8a7cd1cfee29fff1c25b9049f373a', 
-#  '{"date":"2014-01-18T13:11:04.544653","username":"dblank",
-#    "session":"d63aaffb-f40d-492c-ade1-01432181ee3e",
-#    "msg_id":"dcc9c54a-d5fb-4570-95a9-4845ad28ebc3",
-#    "msg_type":"shutdown_request"}', 
-#  '{}', '{}', '{"restart":false}']
-
-
-def shell_thread():
-    name = "Shell"
+def run_thread(loop, name):
     dprint(2, "Starting loop for '%s'..." % name)
     while True:
         dprint(2, "%s Loop!" % name)
         try:
-            shell_loop.start()
-        except ZMQError as e:
-            dprint(2, "%s ZMQError!" % name)
-            if e.errno == errno.EINTR:
-                continue
-            else:
-                raise
-        except Exception:
-            dprint(2, "%s Exception!" % name)
-            if exiting:
-                break
-            else:
-                raise
-        else:
-            dprint(2, "%s Break!" % name)
-            break
-
-def control_thread():
-    name = "Control"
-    dprint(2, "Starting loop for '%s'..." % name)
-    while True:
-        dprint(2, "%s Loop!" % name)
-        try:
-            control_loop.start()
-        except ZMQError as e:
-            dprint(2, "%s ZMQError!" % name)
-            if e.errno == errno.EINTR:
-                continue
-            else:
-                raise
-        except Exception:
-            dprint(2, "%s Exception!" % name)
-            if exiting:
-                break
-            else:
-                raise
-        else:
-            dprint(2, "%s Break!" % name)
-            break
-
-def iopub_thread():
-    name = "IOPub"
-    dprint(2, "Starting loop for '%s'..." % name)
-    while True:
-        dprint(2, "%s Loop!" % name)
-        try:
-            iopub_loop.start()
-        except ZMQError as e:
-            dprint(2, "%s ZMQError!" % name)
-            if e.errno == errno.EINTR:
-                continue
-            else:
-                raise
-        except Exception:
-            dprint(2, "%s Exception!" % name)
-            if exiting:
-                break
-            else:
-                raise
-        else:
-            dprint(2, "%s Break!" % name)
-            break
-
-def stdin_thread():
-    name = "StdIn"
-    dprint(2, "Starting loop for '%s'..." % name)
-    while True:
-        dprint(2, "%s Loop!" % name)
-        try:
-            stdin_loop.start()
+            loop.start()
         except ZMQError as e:
             dprint(2, "%s ZMQError!" % name)
             if e.errno == errno.EINTR:
@@ -343,7 +274,7 @@ iopub_stream.on_recv(iopub_handler)
 
 ##########################################
 # Control:
-control_socket = ctx.socket(zmq.ROUTER)
+control_socket = ctx.socket(zmq.DEALER)
 control_socket.setsockopt(zmq.IDENTITY, session_id)
 control_socket.bind(control_conn)
 control_loop = ioloop.IOLoop()
@@ -352,7 +283,7 @@ control_stream.on_recv(control_handler)
 
 ##########################################
 # Stdin:
-stdin_socket = ctx.socket(zmq.ROUTER)
+stdin_socket = ctx.socket(zmq.DEALER)
 stdin_socket.setsockopt(zmq.IDENTITY, session_id)
 stdin_socket.bind(stdin_conn)
 stdin_loop = ioloop.IOLoop()
@@ -361,7 +292,7 @@ stdin_stream.on_recv(stdin_handler)
 
 ##########################################
 # Shell:
-shell_socket = ctx.socket(zmq.ROUTER)
+shell_socket = ctx.socket(zmq.DEALER)
 shell_socket.setsockopt(zmq.IDENTITY, session_id)
 shell_socket.bind(shell_conn)
 shell_loop = ioloop.IOLoop()
@@ -369,10 +300,10 @@ shell_stream = zmqstream.ZMQStream(shell_socket, shell_loop)
 shell_stream.on_recv(shell_handler)
 
 dprint(1, "Starting loops...")
-threads = [threading.Thread(target=shell_thread),
-           threading.Thread(target=iopub_thread),
-           threading.Thread(target=control_thread),
-           threading.Thread(target=stdin_thread),
+threads = [threading.Thread(target=lambda: run_thread(shell_loop, "Shell")),
+           threading.Thread(target=lambda: run_thread(iopub_loop, "IOPub")),
+#           threading.Thread(target=lambda: run_thread(control_loop, "Control")),
+           threading.Thread(target=lambda: run_thread(stdin_loop, "StdIn")),
            threading.Thread(target=heartbeat_loop)]
 for thread in threads:
     thread.start()
