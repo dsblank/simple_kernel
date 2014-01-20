@@ -22,7 +22,7 @@
 
 from __future__ import print_function
 
-## Imports:
+## General Python imports:
 import sys
 import zmq
 import json
@@ -30,16 +30,18 @@ import hmac
 import uuid
 import threading
 from pprint import pformat
+
+# zmq specific imports:
 from zmq.eventloop import ioloop, zmqstream
 from zmq.error import ZMQError
 
+#Globals:
 decode = json.JSONDecoder().decode
 encode = json.JSONEncoder().encode
 debug_level = 3 # 0 (none) to 3 (all) for various levels of detail
 exiting = False
 
 # Utility functions:
-
 def dprint(level, *args, **kwargs):
     """ Show debug information """
     if level <= debug_level:
@@ -122,14 +124,12 @@ def poll():
         except Exception:
             dprint(2, "Exception!")
             raise
-        # TODO: why does this not get values?
         else:
             break
     dprint(2, "Return:", events)
     return events
 
-# Socket Handlers
-
+# Socket Handlers:
 def shell_handler(msg):
     global execution_count
     dprint(1, "shell received:", msg)
