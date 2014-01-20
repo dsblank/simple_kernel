@@ -314,7 +314,7 @@ threads = [
     threading.Thread(target=lambda: run_thread(iopub_loop, "IOPub")),
 #    threading.Thread(target=lambda: run_thread(control_loop, "Control")),
     threading.Thread(target=lambda: run_thread(stdin_loop, "StdIn")),
-#    threading.Thread(target=heartbeat_loop),
+    threading.Thread(target=heartbeat_loop),
 ]
 for thread in threads:
     thread.start()
