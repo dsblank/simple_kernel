@@ -28,6 +28,7 @@ import zmq
 import json
 import hmac
 import uuid
+import errno
 import threading
 from pprint import pformat
 
@@ -99,14 +100,19 @@ def run_thread(loop, name):
             break
 
 def heartbeat_loop():
+    dprint(2, "Starting loop for 'Heartbeat'...")
     while not exiting:
-        dprint(2, "Ping!")
-        heartbeat_socket.send(b'ping')
-        ready = poll()
-        if ready:
-            heartbeat_socket.recv()
+        print(".", end="")
+        sys.stdout.flush()
+        try:
+            zmq.device(zmq.FORWARDER, heartbeat_socket, heartbeat_socket)
+        except zmq.ZMQError as e:
+            if e.errno == errno.EINTR:
+                continue
+            else:
+                raise
         else:
-            dprint(1, "heartbeat_loop fail!")
+            break
 
 def poll():
     events = []
@@ -262,46 +268,38 @@ execution_count = 1
 ##########################################
 # Heartbeat:
 ctx = zmq.Context()
-heartbeat_socket = ctx.socket(zmq.REQ)
-heartbeat_socket.setsockopt(zmq.LINGER, 0)
-heartbeat_socket.connect(heartbeat_conn)
-poller = zmq.Poller()
-poller.register(heartbeat_socket, zmq.POLLIN)
+heartbeat_socket = ctx.socket(zmq.REP)
+heartbeat_socket.bind(heartbeat_conn)
 
 ##########################################
 # IOPub/Sub:
 # aslo called SubSocketChannel in IPython sources
-iopub_socket = ctx.socket(zmq.SUB)
-iopub_socket.setsockopt(zmq.SUBSCRIBE,b'')
-iopub_socket.setsockopt(zmq.IDENTITY, session_id)
-iopub_socket.connect(iopub_conn)
+iopub_socket = ctx.socket(zmq.PUB)
+iopub_socket.bind(iopub_conn)
 iopub_loop = ioloop.IOLoop()
 iopub_stream = zmqstream.ZMQStream(iopub_socket, iopub_loop)
 iopub_stream.on_recv(iopub_handler)
 
 ##########################################
 # Control:
-control_socket = ctx.socket(zmq.DEALER)
-control_socket.setsockopt(zmq.IDENTITY, session_id)
-control_socket.connect(control_conn)
+control_socket = ctx.socket(zmq.ROUTER)
+control_socket.bind(control_conn)
 control_loop = ioloop.IOLoop()
 control_stream = zmqstream.ZMQStream(control_socket, control_loop)
 control_stream.on_recv(control_handler)
 
 ##########################################
 # Stdin:
-stdin_socket = ctx.socket(zmq.DEALER)
-stdin_socket.setsockopt(zmq.IDENTITY, session_id)
-stdin_socket.connect(stdin_conn)
+stdin_socket = ctx.socket(zmq.ROUTER)
+stdin_socket.bind(stdin_conn)
 stdin_loop = ioloop.IOLoop()
 stdin_stream = zmqstream.ZMQStream(stdin_socket, stdin_loop)
 stdin_stream.on_recv(stdin_handler)
 
 ##########################################
 # Shell:
-shell_socket = ctx.socket(zmq.DEALER)
-shell_socket.setsockopt(zmq.IDENTITY, session_id)
-shell_socket.connect(shell_conn)
+shell_socket = ctx.socket(zmq.ROUTER)
+shell_socket.bind(shell_conn)
 shell_loop = ioloop.IOLoop()
 shell_stream = zmqstream.ZMQStream(shell_socket, shell_loop)
 shell_stream.on_recv(shell_handler)
@@ -312,7 +310,7 @@ dprint(1, "Starting loops...")
 threads = [
     threading.Thread(target=lambda: run_thread(shell_loop, "Shell")),
     threading.Thread(target=lambda: run_thread(iopub_loop, "IOPub")),
-#    threading.Thread(target=lambda: run_thread(control_loop, "Control")),
+    threading.Thread(target=lambda: run_thread(control_loop, "Control")),
     threading.Thread(target=lambda: run_thread(stdin_loop, "StdIn")),
     threading.Thread(target=heartbeat_loop),
 ]
