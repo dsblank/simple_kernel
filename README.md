@@ -9,7 +9,8 @@ Current status:
 * signatures are now correct
 * no luck in sending a result yet
 
-=Other Kernel Examples=
+Other Kernel Examples
+---------------------
 
 * http://andrew.gibiansky.com/blog/ipython/ipython-kernels/ - Useful document in making a kernel
 * https://github.com/gibiansky/IHaskell - Written in Haskell 
@@ -25,4 +26,5 @@ Current status:
 * http://nbviewer.ipython.org/gist/Carreau/4279371/node-kernel.ipynb - Written in JavaScript 
 ** needs "sudo apt-get install libzmq-dev"
 
-=References=
+References
+----------
