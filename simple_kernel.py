@@ -65,10 +65,12 @@ def sign(msg_lst):
     return h.hexdigest()
 
 def send(stream, header, parent_header, metadata, content):
-    msg_lst = [bytes(encode(header)), 
-               bytes(encode(parent_header)), 
-               bytes(encode(metadata)), 
-               bytes(encode(content))]
+    msg_lst = [
+        bytes(encode(header)), 
+        bytes(encode(parent_header)), 
+        bytes(encode(metadata)), 
+        bytes(encode(content)),
+    ]
     signature = sign(msg_lst)
     parts = ["<IDS|MSG>", 
              signature, 
@@ -225,18 +227,18 @@ def shell_handler(msg):
 def control_handler(msg):
     global exiting
     dprint(1, "control received:", msg)
-    # Need to handle: "shutdown_request"
-    # exiting = True
-
-# Control message to handle:
-# ['\x00\xe4<\x98i', 
-#  '<IDS|MSG>', 
-#  '47917158f71daf34e9565516a11ea9632aa8a7cd1cfee29fff1c25b9049f373a', 
-#  '{"date":"2014-01-18T13:11:04.544653","username":"dblank",
-#    "session":"d63aaffb-f40d-492c-ade1-01432181ee3e",
-#    "msg_id":"dcc9c54a-d5fb-4570-95a9-4845ad28ebc3",
-#    "msg_type":"shutdown_request"}', 
-#  '{}', '{}', '{"restart":false}']
+    position = 0
+    while (msg[position] != "<IDS|MSG>"):
+        position += 1
+    m_delim         = msg[position]
+    m_signature     = msg[position + 1]
+    m_header        = decode(msg[position + 2])
+    m_parent_header = decode(msg[position + 3])
+    m_metadata      = decode(msg[position + 4])
+    m_content       = decode(msg[position + 5])
+    # Control message handler:
+    if m_header["msg_type"] == "shutdown_request":
+        exiting = True
 
 def iopub_handler(msg):
     dprint(1, "iopub received:", msg)
