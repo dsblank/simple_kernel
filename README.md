@@ -15,7 +15,7 @@ Other Kernel Examples
 * http://andrew.gibiansky.com/blog/ipython/ipython-kernels/ - Useful document in making a kernel
 * https://github.com/gibiansky/IHaskell - Written in Haskell 
 * https://github.com/takluyver/igo - Written in Go
-** fails to build, needs Go 1.2?
+ * fails to build, needs Go 1.2?
 * https://github.com/mattpap/IScala - Written in Scala
 * https://github.com/mattpap/IAldor - Written C
  * fails to build
@@ -28,3 +28,5 @@ Other Kernel Examples
 
 References
 ----------
+
+1. http://ipython.org/ipython-doc/rel-1.1.0/development/messaging.html
