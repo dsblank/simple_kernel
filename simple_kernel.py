@@ -30,6 +30,7 @@ import hmac
 import uuid
 import errno
 import hashlib
+import datetime
 import threading
 from pprint import pformat
 
@@ -69,15 +70,14 @@ def send(stream, header, parent_header, metadata, content):
                bytes(encode(metadata)), 
                bytes(encode(content))]
     signature = sign(msg_lst)
-    dprint(3, "send: msg_list:", msg_lst) 
-    dprint(3, "send: signature:", signature)
-    stream.send_multipart([
-        "<IDS|MSG>", 
-        signature, 
-        msg_lst[0],
-        msg_lst[1],
-        msg_lst[2],
-        msg_lst[3]])
+    parts = ["<IDS|MSG>", 
+             signature, 
+             msg_lst[0],
+             msg_lst[1],
+             msg_lst[2],
+             msg_lst[3]]
+    dprint(3, "send parts:", parts)
+    stream.send_multipart(parts)
 
 def run_thread(loop, name):
     dprint(2, "Starting loop for '%s'..." % name)
@@ -143,85 +143,83 @@ def shell_handler(msg):
     position = 0
     while (msg[position] != "<IDS|MSG>"):
         position += 1
-    delim         = msg[position]
-    signature     = msg[position + 1]
-    shell_header  = decode(msg[position + 2])
-    parent_header = decode(msg[position + 3])
-    metadata      = decode(msg[position + 4])
-    content       = decode(msg[position + 5])
+    m_delim         = msg[position]
+    m_signature     = msg[position + 1]
+    m_header        = decode(msg[position + 2])
+    m_parent_header = decode(msg[position + 3])
+    m_metadata      = decode(msg[position + 4])
+    m_content       = decode(msg[position + 5])
 
-    dprint(3, "Checking signature:", signature)
     # TODO: check signature
     check_sig = sign(msg[position + 2:position + 6])
-    print("Computed signature    :", check_sig)
-
+    if check_sig != m_signature:
+        raise ValueError("Signatures do not match")
     # process request:
-    if shell_header["msg_type"] == "execute_request":
-        dprint(1, "simple_kernel Executing:", pformat(content["code"]))
-        pub_header = {
+    if m_header["msg_type"] == "execute_request":
+        dprint(1, "simple_kernel Executing:", pformat(m_content["code"]))
+        header = {
+            "date": datetime.datetime.now().isoformat(),
             "msg_id": msg_id(),
-            "username": shell_header["username"],
-            "session": shell_header["session"],
-            "msg_type": "pyout",
+            "username": m_header["username"],
+            "session": m_header["session"],
+            "msg_type": "execute_request",
         }
-        pub_content = {
+        content = {
             'execution_count': execution_count,
             'data' : {"text/plain": "result!"},
             'metadata' : {},
         }
-        send(iopub_stream, pub_header, shell_header, metadata, pub_content)
+        send(shell_stream, header, m_parent_header, m_metadata, content)
         header = {
+            "date": datetime.datetime.now().isoformat(),
             "msg_id": msg_id(),
-            "username": shell_header["username"],
-            "session": shell_header["session"],
+            "username": m_header["username"],
+            "session": m_header["session"],
             "msg_type": "execute_reply",
         } 
         content = {
+            "dependencies_met": True,
+            "engine": "16c65e58-93f1-4af5-bc94-b4146a5c9a31",
+            "status": "ok",
+            "started": datetime.datetime.now().isoformat(),
+        }
+        metadata = {
             "status": "ok",
             "execution_count": execution_count,
-            "playload": [],
             "user_variables": {},
+            "payload": [],
             "user_expressions": {},
         }
-        send(shell_stream, header, shell_header, metadata, content)
-    elif shell_header["msg_type"] == "kernel_info_request":
+        send(shell_stream, header, m_header, metadata, content)
+    elif m_header["msg_type"] == "kernel_info_request":
         header = {
+            "date": datetime.datetime.now().isoformat(),
             "msg_id": msg_id(),
-            "username": shell_header["username"],
-            "session": shell_header["session"],
+            "username": m_header["username"],
+            "session": m_header["session"],
             "msg_type": "kernel_info_reply",
         } 
         content = {
-            "protocol_version": [1, 1],
+            "protocol_version": [4, 0],
             "ipython_version": [1, 1, 0, ""],
             "language_version": [0, 0, 1],
-            "language": "simple",
+            "language": "simple_kernel",
         }
-        send(shell_stream, header, shell_header, metadata, content)
-    elif shell_header["msg_type"] == "history_request":
+        send(shell_stream, header, m_header, metadata, content)
+    elif m_header["msg_type"] == "history_request":
         header = {
+            "date": datetime.datetime.now().isoformat(),
             "msg_id": msg_id(),
-            "username": shell_header["username"],
-            "session": shell_header["session"],
+            "username": m_header["username"],
+            "session": m_header["session"],
             "msg_type": "kernel_info_reply",
         } 
         content = {
             'output' : False,
         }
-        send(shell_stream, header, shell_header, metadata, content)
+        send(shell_stream, header, m_header, m_metadata, content)
     else:
-        dprint("unknown msg_type:", shell_header["msg_type"])
-        header = {
-            "msg_id": msg_id(),
-            "username": shell_header["username"],
-            "session": shell_header["session"],
-            "msg_type": "execute_reply",
-        } 
-        content = {
-            "status": "error",
-            "execution_count": execution_count,
-        }
-        send(shell_stream, header, shell_header, metadata, content)
+        dprint("unknown msg_type:", m_header["msg_type"])
     execution_count += 1
 
 def control_handler(msg):
