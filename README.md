@@ -25,6 +25,7 @@ Other Kernel Examples
  *  echo fails, needs M_UUID defined
 * http://nbviewer.ipython.org/gist/Carreau/4279371/node-kernel.ipynb - Written in JavaScript 
  * needs "sudo apt-get install libzmq-dev"
+ * ImportError: The IPython Notebook requires tornado >= 3.1.0, but you have 2.4.1
 
 References
 ----------
