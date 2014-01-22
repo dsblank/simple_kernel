@@ -164,14 +164,14 @@ def shell_handler(msg):
             "msg_id": msg_id(),
             "username": m_header["username"],
             "session": m_header["session"],
-            "msg_type": "execute_request",
+            "msg_type": "pyout",
         }
         content = {
             'execution_count': execution_count,
             'data' : {"text/plain": "result!"},
-            'metadata' : {},
+            'metadata': {},
         }
-        send(shell_stream, header, m_parent_header, m_metadata, content)
+        send(iopub_stream, header, m_header, m_metadata, content)
         header = {
             "date": datetime.datetime.now().isoformat(),
             "msg_id": msg_id(),
@@ -180,17 +180,13 @@ def shell_handler(msg):
             "msg_type": "execute_reply",
         } 
         content = {
-            "dependencies_met": True,
-            "engine": "16c65e58-93f1-4af5-bc94-b4146a5c9a31",
-            "status": "ok",
-            "started": datetime.datetime.now().isoformat(),
+            'execution_count': execution_count,
+            'status': 'ok',
+            'payload' : [],
+            'user_variables': {},
+            'user_expressions': {},
         }
         metadata = {
-            "status": "ok",
-            "execution_count": execution_count,
-            "user_variables": {},
-            "payload": [],
-            "user_expressions": {},
         }
         send(shell_stream, header, m_header, metadata, content)
     elif m_header["msg_type"] == "kernel_info_request":
