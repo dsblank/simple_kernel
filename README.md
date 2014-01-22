@@ -26,6 +26,8 @@ Other Kernel Examples
 * http://nbviewer.ipython.org/gist/Carreau/4279371/node-kernel.ipynb - Written in JavaScript 
  * needs "sudo apt-get install libzmq-dev"
  * ImportError: The IPython Notebook requires tornado >= 3.1.0, but you have 2.4.1
+ * After upgrading "sudo pip install tornado": ImportError: No module named zmq.subprocesskernel
+ * Maybe it is written for IPython 1.1?
 
 References
 ----------
