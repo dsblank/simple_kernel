@@ -1,7 +1,11 @@
 simple_kernel
 =============
 
-A small, simple kernel example for IPython
+A small, simple kernel example for IPython 1.1
+
+Download and run:
+
+`ipython console --KernelManager.kernel_cmd="['python', 'simple_kernel.py', '{connection_file}']"`
 
 Current status:
 
