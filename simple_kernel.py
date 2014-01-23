@@ -117,27 +117,6 @@ def heartbeat_loop():
         else:
             break
 
-def poll():
-    events = []
-    dprint(2, "Start poll...")
-    while not exiting:
-        try:
-            dprint(2, ".", end="")
-            sys.stdout.flush()
-            events = poller.poll(1000)
-        except ZMQError as e:
-            if e.errno == errno.EINTR:
-                continue
-            else:
-                raise
-        except Exception:
-            dprint(2, "Exception!")
-            raise
-        else:
-            break
-    dprint(2, "Return:", events)
-    return events
-
 # Socket Handlers:
 def shell_handler(msg):
     global execution_count
