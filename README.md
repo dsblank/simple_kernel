@@ -5,9 +5,10 @@ A small, simple kernel example for IPython
 
 Current status:
 
-* sockets are now receiving data
-* signatures are now correct
-* no luck in sending a result yet
+* shell, heartbeat, and iopub channels working
+* signatures are correct
+* need to test control and stdin channels
+* need to handle "magics"
 
 Other Kernel Examples
 ---------------------
