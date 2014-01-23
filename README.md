@@ -20,7 +20,7 @@ Current status:
 
 Bugs:
 
-1. when running a console, doesn't stop python from running
+1. when running a console, doesn't stop python when exiting
 
 References
 ----------
