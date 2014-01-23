@@ -80,6 +80,7 @@ def send(stream, header, parent_header, metadata, content):
              msg_lst[3]]
     dprint(3, "send parts:", parts)
     stream.send_multipart(parts)
+    stream.flush()
 
 def run_thread(loop, name):
     dprint(2, "Starting loop for '%s'..." % name)
@@ -149,7 +150,7 @@ def shell_handler(msg):
         content = {
             'execution_state': "busy",
         }
-        send(iopub_socket, header, m_header, metadata, content)
+        send(iopub_stream, header, m_header, metadata, content)
         #######################################################################
         header = {
             "date": datetime.datetime.now().isoformat(),
@@ -163,7 +164,7 @@ def shell_handler(msg):
             'execution_count': execution_count,
             'code': m_content["code"],
         }
-        send(iopub_socket, header, m_header, metadata, content)
+        send(iopub_stream, header, m_header, metadata, content)
         #######################################################################
         header = {
             "date": datetime.datetime.now().isoformat(),
@@ -178,7 +179,7 @@ def shell_handler(msg):
             'data': {"text/plain": "result!"},
             'metadata': {}
         }
-        send(iopub_socket, header, m_header, metadata, content)
+        send(iopub_stream, header, m_header, metadata, content)
         #######################################################################
         header = {
             "date": datetime.datetime.now().isoformat(),
@@ -191,7 +192,7 @@ def shell_handler(msg):
         content = {
             'execution_state': "idle",
         }
-        send(iopub_socket, header, m_header, metadata, content)
+        send(iopub_stream, header, m_header, metadata, content)
         #######################################################################
         header = {
             "date": datetime.datetime.now().isoformat(),
