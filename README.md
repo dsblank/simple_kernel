@@ -7,6 +7,10 @@ Download and run:
 
 `ipython console --KernelManager.kernel_cmd="['python', 'simple_kernel.py', '{connection_file}']"`
 
+`ipython notebook --KernelManager.kernel_cmd="['python', 'simple_kernel.py', '{connection_file}']"`
+
+`ipython qtconsole --KernelManager.kernel_cmd="['python', 'simple_kernel.py', '{connection_file}']"`
+
 Current status:
 
 * shell, heartbeat, and iopub channels working
@@ -14,10 +18,24 @@ Current status:
 * need to test control and stdin channels
 * need to handle "magics"
 
+Bugs:
+
+1. when running a console, doesn't stop python from running
+
+References
+----------
+
+These references may be helpful in understanding the big picture of IPython and zmq.
+
+1. http://ipython.org/ipython-doc/rel-1.1.0/development/messaging.html - Messaging documentation
+2. http://andrew.gibiansky.com/blog/ipython/ipython-kernels/ - Useful document in making a kernel
+3. http://zeromq.github.io/pyzmq/api/index.html - 0MQ Documentation for low-level socket functionality
+
 Other Kernel Examples
 ---------------------
 
-* http://andrew.gibiansky.com/blog/ipython/ipython-kernels/ - Useful document in making a kernel
+Here is a list of all of the standalone kernels (backends) that I know about. I don't think I got a single one to run, however.
+
 * https://github.com/gibiansky/IHaskell - Written in Haskell 
 * https://github.com/takluyver/igo - Written in Go
  * fails to build, needs Go 1.2?
@@ -32,9 +50,6 @@ Other Kernel Examples
  * needs "sudo apt-get install libzmq-dev"
  * ImportError: The IPython Notebook requires tornado >= 3.1.0, but you have 2.4.1
  * After upgrading "sudo pip install tornado": ImportError: No module named zmq.subprocesskernel
- * Maybe it is written for IPython 1.1?
-
-References
-----------
-
-1. http://ipython.org/ipython-doc/rel-1.1.0/development/messaging.html
+ * Matthias Bussonnier says "The node example pre-date the ability to configure kernelmanager. Just forget about subpricesskernelmanager."
+* https://github.com/minrk/profile_jskernel - In-browser JavaScript kernel
+ * doesn't work as far as I can tell

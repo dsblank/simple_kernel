@@ -24,7 +24,6 @@ from __future__ import print_function
 
 ## General Python imports:
 import sys
-import zmq
 import json
 import hmac
 import uuid
@@ -35,6 +34,7 @@ import threading
 from pprint import pformat
 
 # zmq specific imports:
+import zmq
 from zmq.eventloop import ioloop, zmqstream
 from zmq.error import ZMQError
 
@@ -43,8 +43,15 @@ decode = json.JSONDecoder().decode
 encode = json.JSONEncoder().encode
 debug_level = 3 # 0 (none) to 3 (all) for various levels of detail
 exiting = False
+engine_id = str(uuid.uuid4())
 
 # Utility functions:
+def shutdown():
+    global exiting
+    exiting = True
+    for thread in threads:
+        thread.join()
+
 def dprint(level, *args, **kwargs):
     """ Show debug information """
     if level <= debug_level:
@@ -84,7 +91,7 @@ def send(stream, header, parent_header, metadata, content):
 
 def run_thread(loop, name):
     dprint(2, "Starting loop for '%s'..." % name)
-    while True:
+    while not exiting:
         dprint(2, "%s Loop!" % name)
         try:
             loop.start()
@@ -203,7 +210,7 @@ def shell_handler(msg):
         }
         metadata = {
             "dependencies_met": True,
-            "engine": "459cfb86-2298-417c-8ebc-438f1af52be2",
+            "engine": engine_id,
             "status": "ok",
             "started": datetime.datetime.now().isoformat(),
         }
@@ -261,7 +268,7 @@ def control_handler(msg):
     m_content       = decode(msg[position + 5])
     # Control message handler:
     if m_header["msg_type"] == "shutdown_request":
-        exiting = True
+        shutdown()
 
 def iopub_handler(msg):
     dprint(1, "iopub received:", msg)
@@ -347,8 +354,6 @@ shell_stream.on_recv(shell_handler)
 
 dprint(1, "Config:", encode(config))
 dprint(1, "Starting loops...")
-# Which threads to run is determined by the frontend
-# For example, the notebook frontend does not use heartbeat
 threads = [
     threading.Thread(target=lambda: run_thread(shell_loop, "Shell")),
     threading.Thread(target=lambda: run_thread(iopub_loop, "IOPub")),
