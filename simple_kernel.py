@@ -152,48 +152,94 @@ def shell_handler(msg):
     m_metadata      = decode(msg[position + 4])
     m_content       = decode(msg[position + 5])
 
-    # TODO: check signature
     check_sig = sign(msg[position + 2:position + 6])
     if check_sig != m_signature:
         raise ValueError("Signatures do not match")
     # process request:
+
     if m_header["msg_type"] == "execute_request":
         dprint(1, "simple_kernel Executing:", pformat(m_content["code"]))
         header = {
             "date": datetime.datetime.now().isoformat(),
             "msg_id": msg_id(),
-            "username": m_header["username"],
+            "username": "kernel",
             "session": m_header["session"],
-            "msg_type": "pyout",
+            "msg_type": "status",
         }
+        metadata = {}
         content = {
-            'execution_count': execution_count,
-            'data' : {"text/plain": "result!"},
-            'metadata': {},
+            'execution_state': "busy",
         }
-        send(iopub_stream, header, m_header, m_metadata, content)
+        send(iopub_socket, header, m_header, metadata, content)
+        #######################################################################
         header = {
             "date": datetime.datetime.now().isoformat(),
             "msg_id": msg_id(),
-            "username": m_header["username"],
+            "username": "kernel",
             "session": m_header["session"],
-            "msg_type": "execute_reply",
-        } 
+            "msg_type": "pyin",
+        }
+        metadata = {}
         content = {
             'execution_count': execution_count,
-            'status': 'ok',
-            'payload' : [],
-            'user_variables': {},
-            'user_expressions': {},
+            'code': m_content["code"],
+        }
+        send(iopub_socket, header, m_header, metadata, content)
+        #######################################################################
+        header = {
+            "date": datetime.datetime.now().isoformat(),
+            "msg_id": msg_id(),
+            "username": "kernel",
+            "session": m_header["session"],
+            "msg_type": "pyout",
+        }
+        metadata = {}
+        content = {
+            'execution_count': execution_count,
+            'data': {"text/plain": "result!"},
+        }
+        send(iopub_socket, header, m_header, metadata, content)
+        #######################################################################
+        header = {
+            "date": datetime.datetime.now().isoformat(),
+            "msg_id": msg_id(),
+            "username": "kernel",
+            "session": m_header["session"],
+            "msg_type": "status",
+        }
+        metadata = {}
+        content = {
+            'execution_state': "idle",
+        }
+        send(iopub_socket, header, m_header, metadata, content)
+        #######################################################################
+        header = {
+            "date": datetime.datetime.now().isoformat(),
+            "msg_id": msg_id(),
+            "username": "kernel",
+            "session": m_header["session"],
+            "msg_type": "execute_reply",
         }
         metadata = {
+            "dependencies_met": True,
+            "engine": "459cfb86-2298-417c-8ebc-438f1af52be2",
+            "status": "ok",
+            "started": datetime.datetime.now().isoformat(),
+        }
+        content = {
+            "status": "ok",
+            "execution_count": execution_count,
+            "user_variables": {},
+            "payload": [],
+            "user_expressions": {},
         }
         send(shell_stream, header, m_header, metadata, content)
+        execution_count += 1
     elif m_header["msg_type"] == "kernel_info_request":
         header = {
             "date": datetime.datetime.now().isoformat(),
             "msg_id": msg_id(),
-            "username": m_header["username"],
+            "username": "kernel",
             "session": m_header["session"],
             "msg_type": "kernel_info_reply",
         } 
@@ -203,7 +249,8 @@ def shell_handler(msg):
             "language_version": [0, 0, 1],
             "language": "simple_kernel",
         }
-        send(shell_stream, header, m_header, metadata, content)
+        metadata = {}
+        send(shell_stream, header, m_header, metadata, content) # ok
     elif m_header["msg_type"] == "history_request":
         header = {
             "date": datetime.datetime.now().isoformat(),
@@ -218,7 +265,6 @@ def shell_handler(msg):
         send(shell_stream, header, m_header, m_metadata, content)
     else:
         dprint("unknown msg_type:", m_header["msg_type"])
-    execution_count += 1
 
 def control_handler(msg):
     global exiting
@@ -296,7 +342,7 @@ iopub_stream.on_recv(iopub_handler)
 
 ##########################################
 # Control:
-control_socket = ctx.socket(zmq.ROUTER)
+control_socket = ctx.socket(zmq.DEALER)
 config["control_port"] = bind(control_socket, connection, config["control_port"])
 control_loop = ioloop.IOLoop()
 control_stream = zmqstream.ZMQStream(control_socket, control_loop)
@@ -304,7 +350,7 @@ control_stream.on_recv(control_handler)
 
 ##########################################
 # Stdin:
-stdin_socket = ctx.socket(zmq.ROUTER)
+stdin_socket = ctx.socket(zmq.DEALER)
 config["stdin_port"] = bind(stdin_socket, connection, config["stdin_port"])
 stdin_loop = ioloop.IOLoop()
 stdin_stream = zmqstream.ZMQStream(stdin_socket, stdin_loop)
@@ -312,13 +358,13 @@ stdin_stream.on_recv(stdin_handler)
 
 ##########################################
 # Shell:
-shell_socket = ctx.socket(zmq.ROUTER)
+shell_socket = ctx.socket(zmq.DEALER)
 config["shell_port"] = bind(shell_socket, connection, config["shell_port"])
 shell_loop = ioloop.IOLoop()
 shell_stream = zmqstream.ZMQStream(shell_socket, shell_loop)
 shell_stream.on_recv(shell_handler)
 
-dprint(1, "Config:", pformat(config))
+dprint(1, "Config:", encode(config))
 dprint(1, "Starting loops...")
 # Which threads to run is determined by the frontend
 # For example, the notebook frontend does not use heartbeat
