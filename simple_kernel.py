@@ -197,6 +197,7 @@ def shell_handler(msg):
         content = {
             'execution_count': execution_count,
             'data': {"text/plain": "result!"},
+            'metadata': {}
         }
         send(iopub_socket, header, m_header, metadata, content)
         #######################################################################
