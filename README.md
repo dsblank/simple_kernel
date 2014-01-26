@@ -53,5 +53,5 @@ Here is a list of all of the standalone kernels (backends) that I know about. I 
  * Matthias Bussonnier says "The node example pre-date the ability to configure kernelmanager. Just forget about subpricesskernelmanager."
 * https://github.com/minrk/profile_jskernel - In-browser JavaScript kernel
  * doesn't work as far as I can tell
-* https://bitbucket.org/ipre/calico/src/e8c66615755a45defe28be7eab1fb6051242a2db/Source/Calico/ZMQServer.cs?at=master - Written in C#, but serves a variety of languages (Java, Python, Scheme, and others)
+* https://bitbucket.org/ipre/calico/src/master/Source/Calico/ZMQServer.cs?at=master - Written in C#, but serves a variety of languages (Java, Python, Scheme, and others)
 
