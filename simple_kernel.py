@@ -39,8 +39,10 @@ from zmq.eventloop import ioloop, zmqstream
 from zmq.error import ZMQError
 
 #Globals:
-decode = json.JSONDecoder().decode
-encode = json.JSONEncoder().encode
+DELIM = b"<IDS|MSG>"
+
+decode = json.loads
+encode = json.dumps
 debug_level = 3 # 0 (none) to 3 (all) for various levels of detail
 exiting = False
 engine_id = str(uuid.uuid4())
@@ -49,8 +51,7 @@ engine_id = str(uuid.uuid4())
 def shutdown():
     global exiting
     exiting = True
-    for thread in threads:
-        thread.join()
+    ioloop.IOLoop.instance().stop()
 
 def dprint(level, *args, **kwargs):
     """ Show debug information """
@@ -71,7 +72,25 @@ def sign(msg_lst):
         h.update(m)
     return h.hexdigest()
 
-def send(stream, header, parent_header, metadata, content):
+def new_header(msg_type):
+    """make a new header"""
+    return {
+            "date": datetime.datetime.now().isoformat(),
+            "msg_id": msg_id(),
+            "username": "kernel",
+            "session": engine_id,
+            "msg_type": msg_type,
+        }
+
+def send(stream, msg_type, content=None, parent_header=None, metadata=None, identities=None):
+    header = new_header(msg_type)
+    if content is None:
+        content = {}
+    if parent_header is None:
+        parent_header = {}
+    if metadata is None:
+        metadata = {}
+    
     msg_lst = [
         bytes(encode(header)), 
         bytes(encode(parent_header)), 
@@ -79,12 +98,14 @@ def send(stream, header, parent_header, metadata, content):
         bytes(encode(content)),
     ]
     signature = sign(msg_lst)
-    parts = ["<IDS|MSG>", 
+    parts = [DELIM,
              signature, 
              msg_lst[0],
              msg_lst[1],
              msg_lst[2],
              msg_lst[3]]
+    if identities:
+        parts = identities + parts
     dprint(3, "send parts:", parts)
     stream.send_multipart(parts)
     stream.flush()
@@ -125,89 +146,41 @@ def heartbeat_loop():
         else:
             break
 
+
 # Socket Handlers:
 def shell_handler(msg):
     global execution_count
     dprint(1, "shell received:", msg)
     position = 0
-    while (msg[position] != "<IDS|MSG>"):
-        position += 1
-    m_delim         = msg[position]
-    m_signature     = msg[position + 1]
-    m_header        = decode(msg[position + 2])
-    m_parent_header = decode(msg[position + 3])
-    m_metadata      = decode(msg[position + 4])
-    m_content       = decode(msg[position + 5])
+    identities, msg = deserialize_wire_msg(msg)
 
-    check_sig = sign(msg[position + 2:position + 6])
-    if check_sig != m_signature:
-        raise ValueError("Signatures do not match")
     # process request:
 
-    if m_header["msg_type"] == "execute_request":
-        dprint(1, "simple_kernel Executing:", pformat(m_content["code"]))
-        header = {
-            "date": datetime.datetime.now().isoformat(),
-            "msg_id": msg_id(),
-            "username": "kernel",
-            "session": m_header["session"],
-            "msg_type": "status",
-        }
-        metadata = {}
+    if msg['header']["msg_type"] == "execute_request":
+        dprint(1, "simple_kernel Executing:", pformat(msg['content']["code"]))
         content = {
             'execution_state': "busy",
         }
-        send(iopub_stream, header, m_header, metadata, content)
+        send(iopub_stream, 'status', content, parent_header=msg['header'])
         #######################################################################
-        header = {
-            "date": datetime.datetime.now().isoformat(),
-            "msg_id": msg_id(),
-            "username": "kernel",
-            "session": m_header["session"],
-            "msg_type": "pyin",
-        }
-        metadata = {}
         content = {
             'execution_count': execution_count,
-            'code': m_content["code"],
+            'code': msg['content']["code"],
         }
-        send(iopub_stream, header, m_header, metadata, content)
+        send(iopub_stream, 'pyin', content, parent_header=msg['header'])
         #######################################################################
-        header = {
-            "date": datetime.datetime.now().isoformat(),
-            "msg_id": msg_id(),
-            "username": "kernel",
-            "session": m_header["session"],
-            "msg_type": "pyout",
-        }
-        metadata = {}
         content = {
             'execution_count': execution_count,
             'data': {"text/plain": "result!"},
             'metadata': {}
         }
-        send(iopub_stream, header, m_header, metadata, content)
+        send(iopub_stream, 'pyout', content, parent_header=msg['header'])
         #######################################################################
-        header = {
-            "date": datetime.datetime.now().isoformat(),
-            "msg_id": msg_id(),
-            "username": "kernel",
-            "session": m_header["session"],
-            "msg_type": "status",
-        }
-        metadata = {}
         content = {
             'execution_state': "idle",
         }
-        send(iopub_stream, header, m_header, metadata, content)
+        send(iopub_stream, 'status', content, parent_header=msg['header'])
         #######################################################################
-        header = {
-            "date": datetime.datetime.now().isoformat(),
-            "msg_id": msg_id(),
-            "username": "kernel",
-            "session": m_header["session"],
-            "msg_type": "execute_reply",
-        }
         metadata = {
             "dependencies_met": True,
             "engine": engine_id,
@@ -221,53 +194,46 @@ def shell_handler(msg):
             "payload": [],
             "user_expressions": {},
         }
-        send(shell_stream, header, m_header, metadata, content)
+        send(shell_stream, 'execute_reply', content, metadata=metadata,
+            parent_header=msg['header'], identities=identities)
         execution_count += 1
-    elif m_header["msg_type"] == "kernel_info_request":
-        header = {
-            "date": datetime.datetime.now().isoformat(),
-            "msg_id": msg_id(),
-            "username": "kernel",
-            "session": m_header["session"],
-            "msg_type": "kernel_info_reply",
-        } 
+    elif msg['header']["msg_type"] == "kernel_info_request":
         content = {
             "protocol_version": [4, 0],
             "ipython_version": [1, 1, 0, ""],
             "language_version": [0, 0, 1],
             "language": "simple_kernel",
         }
-        metadata = {}
-        send(shell_stream, header, m_header, metadata, content) # ok
-    elif m_header["msg_type"] == "history_request":
-        header = {
-            "date": datetime.datetime.now().isoformat(),
-            "msg_id": msg_id(),
-            "username": m_header["username"],
-            "session": m_header["session"],
-            "msg_type": "kernel_info_reply",
-        } 
-        content = {
-            'output' : False,
-        }
-        send(shell_stream, header, m_header, m_metadata, content)
+        send(shell_stream, 'kernel_info_reply', content, parent_header=msg['header'], identities=identities)
+    elif msg['header']["msg_type"] == "history_request":
+        dprint("unhandled history request")
     else:
-        dprint("unknown msg_type:", m_header["msg_type"])
+        dprint("unknown msg_type:", msg['header']["msg_type"])
 
-def control_handler(msg):
+def deserialize_wire_msg(wire_msg):
+    """split the routing prefix and message frames from a message on the wire"""
+    delim_idx = wire_msg.index(DELIM)
+    identities = wire_msg[:delim_idx]
+    m_signature = wire_msg[delim_idx + 1]
+    msg_frames = wire_msg[delim_idx + 2:]
+    
+    m = {}
+    m['header']        = decode(msg_frames[0])
+    m['parent_header'] = decode(msg_frames[1])
+    m['metadata']      = decode(msg_frames[2])
+    m['content']       = decode(msg_frames[3])
+    check_sig = sign(msg_frames)
+    if check_sig != m_signature:
+        raise ValueError("Signatures do not match")
+    
+    return identities, m
+
+def control_handler(wire_msg):
     global exiting
-    dprint(1, "control received:", msg)
-    position = 0
-    while (msg[position] != "<IDS|MSG>"):
-        position += 1
-    m_delim         = msg[position]
-    m_signature     = msg[position + 1]
-    m_header        = decode(msg[position + 2])
-    m_parent_header = decode(msg[position + 3])
-    m_metadata      = decode(msg[position + 4])
-    m_content       = decode(msg[position + 5])
+    dprint(1, "control received:", wire_msg)
+    identities, msg = deserialize_wire_msg(wire_msg)
     # Control message handler:
-    if m_header["msg_type"] == "shutdown_request":
+    if msg['header']["msg_type"] == "shutdown_request":
         shutdown()
 
 def iopub_handler(msg):
@@ -297,7 +263,7 @@ else:
         'hb_port'           : 0,
         'iopub_port'        : 0,
         'ip'                : '127.0.0.1',
-        'key'               : uuid.uuid4(),
+        'key'               : str(uuid.uuid4()),
         'shell_port'        : 0,
         'signature_scheme'  : 'hmac-sha256',
         'stdin_port'        : 0,
@@ -324,43 +290,37 @@ config["hb_port"] = bind(heartbeat_socket, connection, config["hb_port"])
 # aslo called SubSocketChannel in IPython sources
 iopub_socket = ctx.socket(zmq.PUB)
 config["iopub_port"] = bind(iopub_socket, connection, config["iopub_port"])
-iopub_loop = ioloop.IOLoop()
-iopub_stream = zmqstream.ZMQStream(iopub_socket, iopub_loop)
+iopub_stream = zmqstream.ZMQStream(iopub_socket)
 iopub_stream.on_recv(iopub_handler)
 
 ##########################################
 # Control:
-control_socket = ctx.socket(zmq.DEALER)
+control_socket = ctx.socket(zmq.ROUTER)
 config["control_port"] = bind(control_socket, connection, config["control_port"])
-control_loop = ioloop.IOLoop()
-control_stream = zmqstream.ZMQStream(control_socket, control_loop)
+control_stream = zmqstream.ZMQStream(control_socket)
 control_stream.on_recv(control_handler)
 
 ##########################################
 # Stdin:
-stdin_socket = ctx.socket(zmq.DEALER)
+stdin_socket = ctx.socket(zmq.ROUTER)
 config["stdin_port"] = bind(stdin_socket, connection, config["stdin_port"])
-stdin_loop = ioloop.IOLoop()
-stdin_stream = zmqstream.ZMQStream(stdin_socket, stdin_loop)
+stdin_stream = zmqstream.ZMQStream(stdin_socket)
 stdin_stream.on_recv(stdin_handler)
 
 ##########################################
 # Shell:
-shell_socket = ctx.socket(zmq.DEALER)
+shell_socket = ctx.socket(zmq.ROUTER)
 config["shell_port"] = bind(shell_socket, connection, config["shell_port"])
-shell_loop = ioloop.IOLoop()
-shell_stream = zmqstream.ZMQStream(shell_socket, shell_loop)
+shell_stream = zmqstream.ZMQStream(shell_socket)
 shell_stream.on_recv(shell_handler)
 
 dprint(1, "Config:", encode(config))
 dprint(1, "Starting loops...")
-threads = [
-    threading.Thread(target=lambda: run_thread(shell_loop, "Shell")),
-    threading.Thread(target=lambda: run_thread(iopub_loop, "IOPub")),
-    threading.Thread(target=lambda: run_thread(control_loop, "Control")),
-    threading.Thread(target=lambda: run_thread(stdin_loop, "StdIn")),
-    threading.Thread(target=heartbeat_loop),
-]
-for thread in threads:
-    thread.start()
+
+hb_thread = threading.Thread(target=heartbeat_loop)
+hb_thread.daemon = True
+hb_thread.start()
+
 dprint(1, "Ready! Listening...")
+
+ioloop.IOLoop.instance().start()
