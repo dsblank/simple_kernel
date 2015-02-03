@@ -271,7 +271,6 @@ else:
     }
 
 connection     = config["transport"] + "://" + config["ip"]
-session_id = unicode(uuid.uuid4()).encode('ascii')
 secure_key = unicode(config["key"]).encode("ascii")
 signature_schemes = {"hmac-sha256": hashlib.sha256}
 auth = hmac.HMAC(
