@@ -45,10 +45,19 @@ public class SimpleKernel
 	return retval;
     }
     
+    public static List<byte[]> blist (params byte[][] args)
+    {
+	var retval = new List<byte[]> ();
+	foreach (byte[] arg in args) {
+	    retval.Add (arg);
+	}
+	return retval;
+    }
+    
     public static IDictionary<string, object> decode (string json)
     {
 	return JsonConvert.DeserializeObject<IDictionary<string, object>> (
-									   json, new JsonConverter[] {new MyConverter ()});
+		   json, new JsonConverter[] {new MyConverter ()});
     }
     
     public static void Start (string config_file)
@@ -220,13 +229,13 @@ public class SimpleKernel
 		System.IO.StreamWriter sw = new System.IO.StreamWriter (this.filename);
 		sw.Write (ipython_config);
 		sw.Close ();
-		//calico.stdout.WriteLine("IPython config file written to:");
-		//calico.stdout.WriteLine("   \"{0}\"", this.filename);
-		//calico.stdout.WriteLine("To exit, you will have to explicitly quit this process, by either sending");
-		//calico.stdout.WriteLine("\"quit\" from a client, or using Ctrl-\\ in UNIX-like environments.");
-		//calico.stdout.WriteLine("To read more about this, see https://github.com/ipython/ipython/issues/2049");
-		//calico.stdout.WriteLine("To connect another client to this kernel, use:");
-		//calico.stdout.WriteLine("    --existing {0} --profile calico", kernelname);
+		Console.Error.WriteLine("IPython config file written to:");
+		Console.Error.WriteLine("   \"{0}\"", this.filename);
+		Console.Error.WriteLine("To exit, you will have to explicitly quit this process, by either sending");
+		Console.Error.WriteLine("\"quit\" from a client, or using Ctrl-\\ in UNIX-like environments.");
+		Console.Error.WriteLine("To read more about this, see https://github.com/ipython/ipython/issues/2049");
+		Console.Error.WriteLine("To connect another client to this kernel, use:");
+		Console.Error.WriteLine("    --existing {0} --profile calico", kernelname);
 	    }
 	}
         
@@ -274,7 +283,6 @@ public class SimpleKernel
 	public void HandleException (GLib.UnhandledExceptionArgs args)
 	{
 	    Console.Error.WriteLine (String.Format ("Exception: {0}", args.ExceptionObject.ToString ()));
-	    //session.shell_channel.ExecutionDone (session.current_execution_count, new List<object> (), session.parent_header);
 	}
         
 	public bool GetBlocking ()
@@ -309,7 +317,7 @@ public class SimpleKernel
         
 	public void send (Channel channel,
                           string msg_type,
-			  IList<string> identities,
+			  IList<byte[]> identities,
 			  IDictionary<string,object> parent_header,
 			  IDictionary<string,object> metadata,
 			  IDictionary<string,object> content
@@ -325,7 +333,7 @@ public class SimpleKernel
 	
 	public void send (Channel channel,
                           string msg_type,
-			  IList<string> identities,
+			  IList<byte[]> identities,
                           string parent_header,
                           string metadata,
                           string content)
@@ -341,9 +349,9 @@ public class SimpleKernel
                                        parent_header,
                                        metadata,
                                        content);
-	    foreach (string msg in identities) {
+	    foreach (byte[] msg in identities) {
 		Console.Error.WriteLine (String.Format ("send ident: {0}", msg));
-		channel.socket.SendMore(msg, Encoding.UTF8);
+		channel.socket.SendMore(msg);
 	    }
 	    int count = 0;
 	    foreach (string msg in parts) {
@@ -430,43 +438,33 @@ public class SimpleKernel
 	    }
 	}
         
+	static byte[] GetBytes(string str)
+	{
+	    byte[] bytes = new byte[str.Length * sizeof(char)];
+	    System.Buffer.BlockCopy(str.ToCharArray(), 0, bytes, 0, bytes.Length);
+	    return bytes;
+	}
+	
 	public virtual void loop ()
 	{
-	    string message, signature, s_header, s_parent_header, s_metadata, s_content;
-	    List<string> identities;
+	    string signature, s_header, s_parent_header, s_metadata, s_content;
+			byte[] bmessage = new byte[100];
+			int size;
+	    List<byte[]> identities;
 	    while (! session.request_quit) {
 		Console.Error.WriteLine (String.Format ("loop()"));
-		identities = new List<string> ();
-		//try {
-		// '\x00f\xd7 \xd5'
-		message = socket.Receive(Encoding.UTF8);
-		Console.Error.WriteLine (String.Format ("Receive: {0}", message));
-		while (message != "<IDS|MSG>") {
-		    /*
-		      Byte [] ba = Encoding.UTF8.GetBytes(message);
-		      if (ba[0] == 0) {
-		      StringBuilder hex = new StringBuilder(ba.Length * 2);
-		      int pos = 0;
-		      foreach (byte b in ba) {
-		      if (pos > 0) {
-		      Console.Error.WriteLine (String.Format ("ba[{0}]: {1}", pos, ba[pos]));
-		      if (ba[pos] < 32 || ba[pos] > 127) {
-		      hex.AppendFormat("\\x{0:x2}", b);
-		      } else {
-		      hex.Append(Convert.ToChar(ba[pos]));
-		      }
-		      }
-		      pos++;
-		      }
-		      Console.Error.WriteLine (String.Format ("Encoded: {0}", hex.ToString ()));
-		      identities.Add (hex.ToString ());
-		      //identities.Add (BitConverter.ToString(Encoding.UTF8.GetBytes(message)).Replace("-", ""));
-		      } else {
-		    */
-		    identities.Add (message);
-		    //}
-		    message = socket.Receive (Encoding.UTF8);
-		    Console.Error.WriteLine (String.Format ("Receive: {0}", message));
+		identities = new List<byte[]> ();
+		var MyEncoding = System.Text.Encoding.GetEncoding("windows-1252");
+		size = socket.Receive(bmessage);//    (MyEncoding);
+		Console.Error.WriteLine (String.Format ("Receive: {0}", MyEncoding.GetString(bmessage, 0, size)));
+		while (MyEncoding.GetString(bmessage, 0, size) != "<IDS|MSG>") {
+		    byte[] buffer = new byte[size];
+		    for (int i =0; i < size; i++) {
+			buffer[i] = bmessage[i];
+		    }
+		    identities.Add (buffer);
+		    size = socket.Receive (bmessage);
+		    Console.Error.WriteLine (String.Format ("Receive: {0}", MyEncoding.GetString(bmessage, 0, size)));
 		    
 		}
 		signature = socket.Receive (Encoding.UTF8);
@@ -474,10 +472,6 @@ public class SimpleKernel
 		s_parent_header = socket.Receive (Encoding.UTF8);
 		s_metadata = socket.Receive (Encoding.UTF8);
 		s_content = socket.Receive (Encoding.UTF8);
-		//} catch {
-		//	Console.Error.WriteLine (String.Format ("Error!"));
-		//	continue;
-		//}
 		string comp_sig = auth.sign (new List<string> () {
 			s_header, s_parent_header, s_metadata, s_content});
                 
@@ -494,7 +488,7 @@ public class SimpleKernel
 	    }
 	}
         
-	public virtual void on_recv (List<string> identities, 
+	public virtual void on_recv (List<byte[]> identities, 
                                      string m_signature, 
                                      IDictionary<string, object> m_header, 
                                      IDictionary<string, object> m_parent_header, 
@@ -527,7 +521,7 @@ public class SimpleKernel
 	    }
         
 	// Shell
-	public override void on_recv (List<string> identities, 
+	public override void on_recv (List<byte[]> identities, 
                                       string m_signature, 
                                       IDictionary<string, object> m_header, 
                                       IDictionary<string, object> m_parent_header, 
@@ -536,31 +530,29 @@ public class SimpleKernel
 	{
 	    // Shell handler
 	    string msg_type = m_header ["msg_type"].ToString ();
-	    //if (session.calico.Debug)
-	    //    session.calico.stdout.WriteLine ("on_recv: {0}", msg_type);
 	    if (msg_type == "execute_request") {
 		var metadata = dict ();
 		var content = dict ("execution_state", "busy");
 		session.send (session.iopub_channel, "status", 
-			      list (), m_header, metadata, content);
+			      blist (), m_header, metadata, content);
 		// ---------------------------------------------------
 		metadata = dict ();
 		content = dict ("execution_count", execution_count,
 				"code", m_content ["code"].ToString ());
 		session.send (session.iopub_channel, "pyin", 
-			      list (), m_header, metadata, content);
+			      blist (), m_header, metadata, content);
 		// ---------------------------------------------------
 		metadata = dict ();
 		content = dict ("execution_count", execution_count,
 				"data", dict ("text/plain", "result!"),
 				"metadata", dict ());
 		session.send (session.iopub_channel, "pyout", 
-			      list (), m_header, metadata, content);
+			      blist (), m_header, metadata, content);
 		// ---------------------------------------------------
 		metadata = dict ();
 		content = dict ("execution_state", "idle");
 		session.send (session.iopub_channel, "status", 
-			      list (), m_header, metadata, content);
+			      blist (), m_header, metadata, content);
 		metadata = dict (
 				 "dependencies_met", true,
 				 "engine", session.engine_identity,
@@ -571,7 +563,7 @@ public class SimpleKernel
 				"status", "ok",
 				"execution_count", execution_count,
 				"user_variables", dict (),
-				"payload", list (),
+				"payload", blist (),
 				"user_expressions", dict ()
 				);
 		session.send (session.shell_channel, "execute_reply", 
@@ -614,7 +606,7 @@ public class SimpleKernel
 	    {
 	    }
         
-	public override void on_recv (List<string> identities, 
+	public override void on_recv (List<byte[]> identities, 
                                       string m_signature, 
                                       IDictionary<string, object> m_header, 
                                       IDictionary<string, object> m_parent_header, 
@@ -644,7 +636,7 @@ public class SimpleKernel
         
         
 	// StdIn
-	public override void on_recv (List<string> identities, 
+	public override void on_recv (List<byte[]> identities, 
                                       string m_signature, 
                                       IDictionary<string, object> m_header, 
                                       IDictionary<string, object> m_parent_header, 
@@ -683,25 +675,5 @@ public class SimpleKernel
 	    }
 	}
     }
-    
-    /*
-    // ZMQServer:
-    public static void StdErrWrite(string message) {
-    if (session != null) {
-    session.StdErrWrite(message);
-    } else {
-    //System.Console.Error.Write(message);
-    }
-    }
-    
-    // ZMQServer:
-    public static void StdOutWrite(string message) {
-    if (session != null) {
-    session.StdOutWrite(message);
-    } else {
-    //System.Console.Write(message);
-    }
-    }
-    */    
 }
 
