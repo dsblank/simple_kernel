@@ -17,7 +17,7 @@
 #  3 - also shows message details
 #
 # Start with a command, such as:
-# ipython console --KernelManager.kernel_cmd="['python', 'simple_kernel.py', 
+# ipython console --KernelManager.kernel_cmd="['python', 'simple_kernel.py',
 #                                              '{connection_file}']"
 
 from __future__ import print_function
@@ -80,6 +80,7 @@ def new_header(msg_type):
             "username": "kernel",
             "session": engine_id,
             "msg_type": msg_type,
+            "version": "5.0",
         }
 
 def send(stream, msg_type, content=None, parent_header=None, metadata=None, identities=None):
@@ -90,16 +91,16 @@ def send(stream, msg_type, content=None, parent_header=None, metadata=None, iden
         parent_header = {}
     if metadata is None:
         metadata = {}
-    
+
     msg_lst = [
-        bytes(encode(header)), 
-        bytes(encode(parent_header)), 
-        bytes(encode(metadata)), 
+        bytes(encode(header)),
+        bytes(encode(parent_header)),
+        bytes(encode(metadata)),
         bytes(encode(content)),
     ]
     signature = sign(msg_lst)
     parts = [DELIM,
-             signature, 
+             signature,
              msg_lst[0],
              msg_lst[1],
              msg_lst[2],
@@ -167,14 +168,20 @@ def shell_handler(msg):
             'execution_count': execution_count,
             'code': msg['content']["code"],
         }
-        send(iopub_stream, 'pyin', content, parent_header=msg['header'])
+        send(iopub_stream, 'execute_input', content, parent_header=msg['header'])
+        #######################################################################
+        content = {
+            'name': "stdout",
+            'text': "hello, world",
+        }
+        send(iopub_stream, 'stream', content, parent_header=msg['header'])
         #######################################################################
         content = {
             'execution_count': execution_count,
             'data': {"text/plain": "result!"},
             'metadata': {}
         }
-        send(iopub_stream, 'pyout', content, parent_header=msg['header'])
+        send(iopub_stream, 'execute_result', content, parent_header=msg['header'])
         #######################################################################
         content = {
             'execution_state': "idle",
@@ -199,10 +206,22 @@ def shell_handler(msg):
         execution_count += 1
     elif msg['header']["msg_type"] == "kernel_info_request":
         content = {
-            "protocol_version": [4, 0],
+            "protocol_version": "5.0",
             "ipython_version": [1, 1, 0, ""],
             "language_version": [0, 0, 1],
             "language": "simple_kernel",
+            "implementation": "simple_kernel",
+            "implementation_version": "1.1",
+            "language_info": {
+                "name": "simple_kernel",
+                "version": "1.0",
+                'mimetype': "",
+                'file_extension': ".py",
+                'pygments_lexer': "",
+                'codemirror_mode': "",
+                'nbconvert_exporter': "",
+            },
+            "banner": ""
         }
         send(shell_stream, 'kernel_info_reply', content, parent_header=msg['header'], identities=identities)
     elif msg['header']["msg_type"] == "history_request":
@@ -216,7 +235,7 @@ def deserialize_wire_msg(wire_msg):
     identities = wire_msg[:delim_idx]
     m_signature = wire_msg[delim_idx + 1]
     msg_frames = wire_msg[delim_idx + 2:]
-    
+
     m = {}
     m['header']        = decode(msg_frames[0])
     m['parent_header'] = decode(msg_frames[1])
@@ -225,7 +244,7 @@ def deserialize_wire_msg(wire_msg):
     check_sig = sign(msg_frames)
     if check_sig != m_signature:
         raise ValueError("Signatures do not match")
-    
+
     return identities, m
 
 def control_handler(wire_msg):
@@ -274,7 +293,7 @@ connection     = config["transport"] + "://" + config["ip"]
 secure_key = unicode(config["key"]).encode("ascii")
 signature_schemes = {"hmac-sha256": hashlib.sha256}
 auth = hmac.HMAC(
-    secure_key, 
+    secure_key,
     digestmod=signature_schemes[config["signature_scheme"]])
 execution_count = 1
 
