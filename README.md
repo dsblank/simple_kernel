@@ -96,7 +96,7 @@ References
 
 These references may be helpful in understanding the big picture of IPython and zmq.
 
-1. http://ipython.org/ipython-doc/rel-1.1.0/development/messaging.html - Messaging documentation
+1. http://ipython.org/ipython-doc/dev/development/messaging.html - Messaging documentation
 2. http://andrew.gibiansky.com/blog/ipython/ipython-kernels/ - Useful document in making a kernel
 3. http://zeromq.github.io/pyzmq/api/index.html - 0MQ Documentation for low-level socket functionality
 
