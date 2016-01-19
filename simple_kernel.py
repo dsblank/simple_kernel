@@ -38,11 +38,11 @@ import zmq
 from zmq.eventloop import ioloop, zmqstream
 from zmq.error import ZMQError
 
+PYTHON3 = sys.version_info.major == 3
+
 #Globals:
 DELIM = b"<IDS|MSG>"
 
-decode = json.loads
-encode = json.dumps
 debug_level = 3 # 0 (none) to 3 (all) for various levels of detail
 exiting = False
 engine_id = str(uuid.uuid4())
@@ -63,6 +63,9 @@ def msg_id():
     """ Return a new uuid for message id """
     return str(uuid.uuid4())
 
+def str_to_bytes(s):
+    return s.encode('ascii') if PYTHON3 else bytes(s)
+
 def sign(msg_lst):
     """
     Sign a message with a secure signature.
@@ -70,7 +73,7 @@ def sign(msg_lst):
     h = auth.copy()
     for m in msg_lst:
         h.update(m)
-    return h.hexdigest()
+    return str_to_bytes(h.hexdigest())
 
 def new_header(msg_type):
     """make a new header"""
@@ -92,11 +95,14 @@ def send(stream, msg_type, content=None, parent_header=None, metadata=None, iden
     if metadata is None:
         metadata = {}
 
+    def encode(msg):
+        return str_to_bytes(json.dumps(msg))
+
     msg_lst = [
-        bytes(encode(header)),
-        bytes(encode(parent_header)),
-        bytes(encode(metadata)),
-        bytes(encode(content)),
+        encode(header),
+        encode(parent_header),
+        encode(metadata),
+        encode(content),
     ]
     signature = sign(msg_lst)
     parts = [DELIM,
@@ -236,6 +242,9 @@ def deserialize_wire_msg(wire_msg):
     m_signature = wire_msg[delim_idx + 1]
     msg_frames = wire_msg[delim_idx + 2:]
 
+    def decode(msg):
+        return json.loads(msg.decode('ascii') if PYTHON3 else msg)
+
     m = {}
     m['header']        = decode(msg_frames[0])
     m['parent_header'] = decode(msg_frames[1])
@@ -274,7 +283,7 @@ ioloop.install()
 if len(sys.argv) > 1:
     dprint(1, "Loading simple_kernel with args:", sys.argv)
     dprint(1, "Reading config file '%s'..." % sys.argv[1])
-    config = decode("".join(open(sys.argv[1]).readlines()))
+    config = json.loads("".join(open(sys.argv[1]).readlines()))
 else:
     dprint(1, "Starting simple_kernel with default args...")
     config = {
@@ -289,8 +298,8 @@ else:
         'transport'         : 'tcp'
     }
 
-connection     = config["transport"] + "://" + config["ip"]
-secure_key = unicode(config["key"]).encode("ascii")
+connection = config["transport"] + "://" + config["ip"]
+secure_key = str_to_bytes(config["key"])
 signature_schemes = {"hmac-sha256": hashlib.sha256}
 auth = hmac.HMAC(
     secure_key,
@@ -332,7 +341,7 @@ config["shell_port"] = bind(shell_socket, connection, config["shell_port"])
 shell_stream = zmqstream.ZMQStream(shell_socket)
 shell_stream.on_recv(shell_handler)
 
-dprint(1, "Config:", encode(config))
+dprint(1, "Config:", json.dumps(config))
 dprint(1, "Starting loops...")
 
 hb_thread = threading.Thread(target=heartbeat_loop)
