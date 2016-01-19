@@ -225,9 +225,9 @@ def shell_handler(msg):
         }
         send(shell_stream, 'kernel_info_reply', content, parent_header=msg['header'], identities=identities)
     elif msg['header']["msg_type"] == "history_request":
-        dprint("unhandled history request")
+        dprint(1, "unhandled history request")
     else:
-        dprint("unknown msg_type:", msg['header']["msg_type"])
+        dprint(1, "unknown msg_type:", msg['header']["msg_type"])
 
 def deserialize_wire_msg(wire_msg):
     """split the routing prefix and message frames from a message on the wire"""
