@@ -107,20 +107,20 @@ Here is a list of all of the standalone kernels (backends) that I know about. I 
 
 * https://github.com/gibiansky/IHaskell - Written in Haskell
 * https://github.com/takluyver/igo - Written in Go
- * fails to build, needs Go 1.2?
+  * fails to build, needs Go 1.2?
 * https://github.com/mattpap/IScala - Written in Scala
 * https://github.com/mattpap/IAldor - Written C
- * fails to build
+  * fails to build
 * https://github.com/mattpap/ipykernel - Written in C
- *  needs "sudo ln -s /usr/lib/x86_64-linux-gnu/libjansson.so.4 /usr/lib/libjansson.so"
- *  needs "sudo apt-get install uuid-dev"
- *  echo fails, needs M_UUID defined
+  *  needs "sudo ln -s /usr/lib/x86_64-linux-gnu/libjansson.so.4 /usr/lib/libjansson.so"
+  *  needs "sudo apt-get install uuid-dev"
+  *  echo fails, needs M_UUID defined
 * http://nbviewer.ipython.org/gist/Carreau/4279371/node-kernel.ipynb - Written in JavaScript
- * needs "sudo apt-get install libzmq-dev"
- * ImportError: The IPython Notebook requires tornado >= 3.1.0, but you have 2.4.1
- * After upgrading "sudo pip install tornado": ImportError: No module named zmq.subprocesskernel
- * Matthias Bussonnier says "The node example pre-date the ability to configure kernelmanager. Just forget about subpricesskernelmanager."
+  * needs "sudo apt-get install libzmq-dev"
+  * ImportError: The IPython Notebook requires tornado >= 3.1.0, but you have 2.4.1
+  * After upgrading "sudo pip install tornado": ImportError: No module named zmq.subprocesskernel
+  * Matthias Bussonnier says "The node example pre-date the ability to configure kernelmanager. Just forget about subpricesskernelmanager."
 * https://github.com/minrk/profile_jskernel - In-browser JavaScript kernel
- * doesn't work as far as I can tell
+  * doesn't work as far as I can tell
 * https://bitbucket.org/ipre/calico/src/master/Source/Calico/ZMQServer.cs?at=master - Written in C#, but serves a variety of languages (Java, Python, Scheme, and others)
 
