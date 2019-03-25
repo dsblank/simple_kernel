@@ -230,6 +230,10 @@ def shell_handler(msg):
             "banner": ""
         }
         send(shell_stream, 'kernel_info_reply', content, parent_header=msg['header'], identities=identities)
+        content = {
+            'execution_state': "idle",
+        }
+        send(iopub_stream, 'status', content, parent_header=msg['header'])
     elif msg['header']["msg_type"] == "history_request":
         dprint(1, "unhandled history request")
     else:
